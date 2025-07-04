@@ -20,9 +20,11 @@ export class UserService {
                 data: {
                     ...userData,
                     Password: hashedPassword,
+                    created_at: new Date(),
+                    updated_at: new Date(),
                 }
             });
-            const Rol = await this.prisma.usuario_Rol.create({
+            const user_Rol = await this.prisma.usuario_Rol.create({
                 data:{
                     Id_Usuario: newUser.Id_Usuario,
                     Id_Rol: body.Id_Rol

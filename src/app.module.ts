@@ -7,6 +7,9 @@ import { PrismaService } from './database/prisma.services';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { PeopleModule } from './people/people.module';
+import { CaseStudyManagementModule } from './case-study-management/case-study-management.module';
+import { CarreraModule } from './carrera/carrera.module';
+import { FacultadModule } from './facultad/facultad.module';
 
 @Module({
   imports: [
@@ -17,7 +20,10 @@ import { PeopleModule } from './people/people.module';
     }),
     AuthModule,
     UserModule,
-    PeopleModule
+    PeopleModule,
+    CaseStudyManagementModule,
+    CarreraModule,
+    FacultadModule
     
   ],
   controllers: [AppController],

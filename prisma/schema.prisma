@@ -140,6 +140,7 @@ model carrera {
   id_facultad                  BigInt?
   created_at                   DateTime?                      @db.Timestamp(6)
   updated_at                   DateTime?                      @db.Timestamp(6)
+  estado                       Boolean?
   asignacion_carrera_encargado asignacion_carrera_encargado[]
   facultad                     facultad?                      @relation(fields: [id_facultad], references: [id_facultad], onDelete: NoAction, onUpdate: NoAction)
   carrera_Area                 carrera_Area[]
