@@ -109,6 +109,7 @@ model area {
   nombre_area      String             @db.VarChar(100)
   created_at       DateTime?          @db.Timestamp(6)
   updated_at       DateTime?          @db.Timestamp(6)
+  estado           Boolean?
   area_Tribunal    area_Tribunal[]
   carrera_Area     carrera_Area[]
   casos_de_estudio casos_de_estudio[]

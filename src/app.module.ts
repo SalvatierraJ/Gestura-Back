@@ -10,6 +10,7 @@ import { PeopleModule } from './people/people.module';
 import { CaseStudyManagementModule } from './case-study-management/case-study-management.module';
 import { CarreraModule } from './carrera/carrera.module';
 import { FacultadModule } from './facultad/facultad.module';
+import { AreaModule } from './area/area.module';
 
 @Module({
   imports: [
@@ -23,7 +24,8 @@ import { FacultadModule } from './facultad/facultad.module';
     PeopleModule,
     CaseStudyManagementModule,
     CarreraModule,
-    FacultadModule
+    FacultadModule,
+    AreaModule
     
   ],
   controllers: [AppController],
