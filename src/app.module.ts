@@ -11,6 +11,10 @@ import { CaseStudyManagementModule } from './case-study-management/case-study-ma
 import { CarreraModule } from './carrera/carrera.module';
 import { FacultadModule } from './facultad/facultad.module';
 import { AreaModule } from './area/area.module';
+import { CasosEstudioService } from './casos-estudio/casos-estudio.service';
+import { CasosEstudioModule } from './casos-estudio/casos-estudio.module';
+import { TribunalDocenteModule } from './tribunal-docente/tribunal-docente.module';
+import { DocentesmanagementModule } from './docentesmanagement/docentesmanagement.module';
 
 @Module({
   imports: [
@@ -25,10 +29,13 @@ import { AreaModule } from './area/area.module';
     CaseStudyManagementModule,
     CarreraModule,
     FacultadModule,
-    AreaModule
+    AreaModule,
+    CasosEstudioModule,
+    TribunalDocenteModule,
+    DocentesmanagementModule
     
   ],
   controllers: [AppController],
-  providers: [AppService,PrismaService],
+  providers: [AppService,PrismaService, CasosEstudioService],
 })
 export class AppModule {}

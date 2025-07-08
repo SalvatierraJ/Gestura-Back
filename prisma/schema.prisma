@@ -40,10 +40,10 @@ model Persona {
   CI                 String?              @db.VarChar(255)
   created_at         DateTime?            @db.Timestamp(6)
   updated_at         DateTime?            @db.Timestamp(6)
+  telefono           Int?
   Usuario            Usuario[]
   encargados_carrera encargados_carrera[]
   estudiante         estudiante[]
-  numero_Telefonico  numero_Telefonico[]
   tribunal_Docente   tribunal_Docente[]
 }
 
@@ -151,11 +151,12 @@ model carrera {
 model casos_de_estudio {
   id_casoEstudio BigInt    @id @default(autoincrement())
   Nombre_Archivo String?
-  estado         String?   @db.VarChar
-  fecha_Subida   String?
   id_area        BigInt?
   created_at     DateTime? @db.Timestamp(6)
   updated_at     DateTime? @db.Timestamp(6)
+  url            String?
+  estado         Boolean?
+  fecha_Subida   DateTime? @db.Date
   area           area?     @relation(fields: [id_area], references: [id_area], onDelete: NoAction, onUpdate: NoAction)
   defensa        defensa[]
 }
@@ -270,15 +271,6 @@ model metadatos {
   updated_at          DateTime? @db.Timestamp(6)
 }
 
-model numero_Telefonico {
-  id_telefono BigInt    @id @default(autoincrement())
-  numero      BigInt?
-  id_Persona  BigInt?
-  created_at  DateTime? @db.Timestamp(6)
-  updated_at  DateTime? @db.Timestamp(6)
-  Persona     Persona?  @relation(fields: [id_Persona], references: [Id_Persona], onDelete: NoAction, onUpdate: NoAction)
-}
-
 model plantilla_Interna {
   id_plantilla         BigInt                 @id @default(autoincrement())
   nombre               String?                @db.VarChar
@@ -292,11 +284,11 @@ model plantilla_Interna {
 
 model tribunal_Docente {
   id_tribunal      BigInt             @id @default(autoincrement())
-  estado           String?            @db.VarChar
   Id_TipoTribunal  BigInt?
   id_Persona       BigInt?
   created_at       DateTime?          @db.Timestamp(6)
   updated_at       DateTime?          @db.Timestamp(6)
+  estado           Boolean?
   Contrato_Docente Contrato_Docente[]
   area_Tribunal    area_Tribunal[]
   horario_materia  horario_materia[]
