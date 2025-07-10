@@ -32,19 +32,18 @@ model Contrato_Docente {
 }
 
 model Persona {
-  Id_Persona         BigInt               @id @default(autoincrement())
-  Nombre             String               @db.VarChar(500)
-  Apellido1          String               @db.VarChar(500)
-  Apellido2          String?              @db.VarChar(500)
-  Correo             String?              @db.VarChar(500)
-  CI                 String?              @db.VarChar(255)
-  created_at         DateTime?            @db.Timestamp(6)
-  updated_at         DateTime?            @db.Timestamp(6)
-  telefono           Int?
-  Usuario            Usuario[]
-  encargados_carrera encargados_carrera[]
-  estudiante         estudiante[]
-  tribunal_Docente   tribunal_Docente[]
+  Id_Persona       BigInt             @id @default(autoincrement())
+  Nombre           String             @db.VarChar(500)
+  Apellido1        String             @db.VarChar(500)
+  Apellido2        String?            @db.VarChar(500)
+  Correo           String?            @db.VarChar(500)
+  CI               String?            @db.VarChar(255)
+  created_at       DateTime?          @db.Timestamp(6)
+  updated_at       DateTime?          @db.Timestamp(6)
+  telefono         BigInt?
+  Usuario          Usuario[]
+  estudiante       estudiante[]
+  tribunal_Docente tribunal_Docente[]
 }
 
 model Rol {
@@ -53,6 +52,7 @@ model Rol {
   created_at         DateTime?            @db.Timestamp(6)
   updated_at         DateTime?            @db.Timestamp(6)
   Usuario_Rol        Usuario_Rol[]
+  rol_Carrera        rol_Carrera[]
   rol_Modulo_Permiso rol_Modulo_Permiso[]
 }
 
@@ -89,6 +89,7 @@ model Usuario {
   updated_at           DateTime?              @db.Timestamp(6)
   Persona              Persona                @relation(fields: [Id_Persona], references: [Id_Persona], onDelete: NoAction, onUpdate: NoAction)
   Usuario_Rol          Usuario_Rol[]
+  defensa              defensa[]
   documentos_generados documentos_generados[]
 }
 
@@ -113,6 +114,7 @@ model area {
   area_Tribunal    area_Tribunal[]
   carrera_Area     carrera_Area[]
   casos_de_estudio casos_de_estudio[]
+  defensa          defensa[]
 }
 
 model area_Tribunal {
@@ -125,27 +127,17 @@ model area_Tribunal {
   area             area?             @relation(fields: [id_area], references: [id_area], onDelete: NoAction, onUpdate: NoAction)
 }
 
-model asignacion_carrera_encargado {
-  id_asignacion      BigInt              @id @default(autoincrement())
-  id_encargado       BigInt?
-  id_carrera         BigInt?
-  created_at         DateTime?           @db.Timestamp(6)
-  updated_at         DateTime?           @db.Timestamp(6)
-  carrera            carrera?            @relation(fields: [id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction)
-  encargados_carrera encargados_carrera? @relation(fields: [id_encargado], references: [id_encargados_carrera], onDelete: NoAction, onUpdate: NoAction)
-}
-
 model carrera {
-  id_carrera                   BigInt                         @id @default(autoincrement())
-  nombre_carrera               String                         @db.VarChar(100)
-  id_facultad                  BigInt?
-  created_at                   DateTime?                      @db.Timestamp(6)
-  updated_at                   DateTime?                      @db.Timestamp(6)
-  estado                       Boolean?
-  asignacion_carrera_encargado asignacion_carrera_encargado[]
-  facultad                     facultad?                      @relation(fields: [id_facultad], references: [id_facultad], onDelete: NoAction, onUpdate: NoAction)
-  carrera_Area                 carrera_Area[]
-  estudiante_Carrera           estudiante_Carrera[]
+  id_carrera         BigInt               @id @default(autoincrement())
+  nombre_carrera     String               @db.VarChar(100)
+  id_facultad        BigInt?
+  created_at         DateTime?            @db.Timestamp(6)
+  updated_at         DateTime?            @db.Timestamp(6)
+  estado             Boolean?
+  facultad           facultad?            @relation(fields: [id_facultad], references: [id_facultad], onDelete: NoAction, onUpdate: NoAction)
+  carrera_Area       carrera_Area[]
+  estudiante_Carrera estudiante_Carrera[]
+  rol_Carrera        rol_Carrera[]
 }
 
 model casos_de_estudio {
@@ -162,23 +154,27 @@ model casos_de_estudio {
 }
 
 model defensa {
-  id_defensa            BigInt             @id @default(autoincrement())
-  fecha_defensa         DateTime?          @db.Date
-  fecha_sorteo          DateTime?          @db.Date
-  estado                String             @db.VarChar
-  nota                  Decimal?           @db.Decimal
-  created_at            DateTime?          @db.Timestamp(6)
-  updated_at            DateTime?          @db.Timestamp(6)
-  id_tipo_defensa       BigInt
-  id_estudiante         BigInt
-  id_casoEstudio        BigInt?
-  id_encargados_carrera BigInt
-  archivos_defensa      archivos_defensa[]
-  casos_de_estudio      casos_de_estudio?  @relation(fields: [id_casoEstudio], references: [id_casoEstudio], onDelete: NoAction, onUpdate: NoAction)
-  encargados_carrera    encargados_carrera @relation(fields: [id_encargados_carrera], references: [id_encargados_carrera], onDelete: NoAction, onUpdate: NoAction)
-  estudiante            estudiante         @relation(fields: [id_estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction)
-  Tipo_Defensa          Tipo_Defensa       @relation(fields: [id_tipo_defensa], references: [id_TipoDefensa], onDelete: NoAction, onUpdate: NoAction)
-  tribunal_defensa      tribunal_defensa[]
+  id_defensa        BigInt             @id @default(autoincrement())
+  fecha_defensa     DateTime?          @db.Timestamptz(6)
+  fecha_sorteo_area DateTime?          @db.Timestamptz(6)
+  estado            String             @db.VarChar
+  nota              Decimal?           @db.Decimal
+  created_at        DateTime?          @db.Timestamp(6)
+  updated_at        DateTime?          @db.Timestamp(6)
+  id_tipo_defensa   BigInt
+  id_estudiante     BigInt
+  id_casoEstudio    BigInt?
+  fecha_sorteo_caso DateTime?          @db.Timestamptz(6)
+  id_area           BigInt?
+  aula              String?            @db.VarChar
+  id_usuario        BigInt?
+  archivos_defensa  archivos_defensa[]
+  area              area?              @relation(fields: [id_area], references: [id_area], onDelete: NoAction, onUpdate: NoAction)
+  casos_de_estudio  casos_de_estudio?  @relation(fields: [id_casoEstudio], references: [id_casoEstudio], onDelete: NoAction, onUpdate: NoAction)
+  estudiante        estudiante         @relation(fields: [id_estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction)
+  Tipo_Defensa      Tipo_Defensa       @relation(fields: [id_tipo_defensa], references: [id_TipoDefensa], onDelete: NoAction, onUpdate: NoAction)
+  Usuario           Usuario?           @relation(fields: [id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction, map: "id_usuario_fk")
+  tribunal_defensa  tribunal_defensa[]
 }
 
 model documentos_generados {
@@ -190,17 +186,6 @@ model documentos_generados {
   updated_at        DateTime?          @db.Timestamp(6)
   plantilla_Interna plantilla_Interna? @relation(fields: [id_plantilla], references: [id_plantilla], onDelete: NoAction, onUpdate: NoAction)
   Usuario           Usuario?           @relation(fields: [id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model encargados_carrera {
-  id_encargados_carrera        BigInt                         @id @default(autoincrement())
-  id_Persona                   BigInt?
-  estado                       String?                        @db.VarChar(255)
-  created_at                   DateTime?                      @db.Timestamp(6)
-  updated_at                   DateTime?                      @db.Timestamp(6)
-  asignacion_carrera_encargado asignacion_carrera_encargado[]
-  defensa                      defensa[]
-  Persona                      Persona?                       @relation(fields: [id_Persona], references: [Id_Persona], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model estudiante {
@@ -324,8 +309,8 @@ model Modulos {
 
 model Permisos {
   Id_Permiso         BigInt               @id @default(autoincrement())
-  Nombre             String[]             @db.Char
-  Descripcion        String[]             @db.Char
+  Nombre             String?              @db.VarChar
+  Descripcion        String?              @db.VarChar
   rol_Modulo_Permiso rol_Modulo_Permiso[]
 }
 
@@ -354,4 +339,12 @@ model carrera_Area {
   Id_Area        BigInt?
   area           area?    @relation(fields: [Id_Area], references: [id_area], onDelete: NoAction, onUpdate: NoAction, map: "Id_Area")
   carrera        carrera? @relation(fields: [Id_Carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "Id_Carrera")
+}
+
+model rol_Carrera {
+  Id_Rol_Carrera BigInt   @id @default(autoincrement())
+  Id_rol         BigInt?
+  Id_carrera     BigInt?
+  Rol            Rol?     @relation(fields: [Id_rol], references: [id_Rol], onDelete: NoAction, onUpdate: NoAction, map: "Id_Rol")
+  carrera        carrera? @relation(fields: [Id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "id_carrera")
 }

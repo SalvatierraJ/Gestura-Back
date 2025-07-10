@@ -15,6 +15,15 @@ import { CasosEstudioService } from './casos-estudio/casos-estudio.service';
 import { CasosEstudioModule } from './casos-estudio/casos-estudio.module';
 import { TribunalDocenteModule } from './tribunal-docente/tribunal-docente.module';
 import { DocentesmanagementModule } from './docentesmanagement/docentesmanagement.module';
+import { StudentManagamentModule } from './student-managament/student-managament.module';
+import { EstudianteModule } from './estudiante/estudiante.module';
+import { DefensaModule } from './defensa/defensa.module';
+import { DefensasmanagamentModule } from './defensasmanagament/defensasmanagament.module';
+import { JuradosModule } from './jurados/jurados.module';
+import { RolModule } from './rol/rol.module';
+import { ControlaccesomanagamentModule } from './controlaccesomanagament/controlaccesomanagament.module';
+import { PermisosModule } from './permisos/permisos.module';
+import { ModulosModule } from './modulos/modulos.module';
 
 @Module({
   imports: [
@@ -32,7 +41,16 @@ import { DocentesmanagementModule } from './docentesmanagement/docentesmanagemen
     AreaModule,
     CasosEstudioModule,
     TribunalDocenteModule,
-    DocentesmanagementModule
+    DocentesmanagementModule,
+    StudentManagamentModule,
+    EstudianteModule,
+    DefensaModule,
+    DefensasmanagamentModule,
+    JuradosModule,
+    RolModule,
+    ControlaccesomanagamentModule,
+    PermisosModule,
+    ModulosModule
     
   ],
   controllers: [AppController],
