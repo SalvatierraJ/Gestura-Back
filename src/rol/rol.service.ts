@@ -32,7 +32,6 @@ export class RolService {
 
         // 3. Asignar permisos por módulos
         if (esTotal) {
-            // Obtener todos los módulos y permisos
             const [modulos, permisos] = await Promise.all([
                 this.prisma.modulos.findMany(),
                 this.prisma.permisos.findMany(),

@@ -6,6 +6,6 @@ export class CreateUserDto {
     @IsNotEmpty()
     @IsString()               
     Password:string               
-    Id_Rol:bigint
+    Id_Rol:Number[] 
     Id_Persona:bigint
 }

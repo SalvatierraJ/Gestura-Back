@@ -303,7 +303,7 @@ model estudiante_Carrera {
 
 model Modulos {
   Id_Modulo          BigInt               @id @default(autoincrement())
-  Nombre             String[]             @db.Char
+  Nombre             String?              @db.VarChar
   rol_Modulo_Permiso rol_Modulo_Permiso[]
 }
 
