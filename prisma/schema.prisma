@@ -213,7 +213,7 @@ model estudiantes_materia {
 
 model facultad {
   id_facultad     BigInt    @id @default(autoincrement())
-  nombre_facultad String    @db.VarChar(100)
+  nombre_facultad String    @unique @db.VarChar(100)
   created_at      DateTime? @db.Timestamp(6)
   updated_at      DateTime? @db.Timestamp(6)
   carrera         carrera[]
@@ -330,6 +330,8 @@ model rol_Modulo_Permiso {
   Modulos           Modulos?  @relation(fields: [Id_Modulo], references: [Id_Modulo], onDelete: NoAction, onUpdate: NoAction, map: "Id_Modulo")
   Permisos          Permisos? @relation(fields: [Id_Permiso], references: [Id_Permiso], onDelete: NoAction, onUpdate: NoAction, map: "Id_Permiso")
   Rol               Rol?      @relation(fields: [Id_Rol], references: [id_Rol], onDelete: NoAction, onUpdate: NoAction, map: "Id_Rol")
+
+  @@unique([Id_Rol, Id_Modulo, Id_Permiso], name: "rol_modulo_permiso_unique")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -347,4 +349,6 @@ model rol_Carrera {
   Id_carrera     BigInt?
   Rol            Rol?     @relation(fields: [Id_rol], references: [id_Rol], onDelete: NoAction, onUpdate: NoAction, map: "Id_Rol")
   carrera        carrera? @relation(fields: [Id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "id_carrera")
+
+  @@unique([Id_rol, Id_carrera], name: "Id_rol_Id_carrera")
 }
