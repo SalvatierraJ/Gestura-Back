@@ -135,7 +135,39 @@ async function main() {
         });
     }
 
+    const personaAdmin = await prisma.persona.create({
+        data: {
+            Nombre: "Admin",
+            Apellido1: "Principal",
+            Apellido2: "Sistema",
+            Correo: "admin@utepsa.edu.bo",
+            CI: "12345678",
+            telefono: 123456789,
+        }
+    });
 
+    // 2. Crea el usuario y le asigna el id de persona
+    const usuarioAdmin = await prisma.usuario.create({
+        data: {
+            Nombre_Usuario: "admin",
+            Password: "admin123", // ¡En producción usa hash!
+            Id_Persona: personaAdmin.Id_Persona,
+        }
+    });
+
+    // 3. Busca el rol Admin
+    const rolAdmin = await prisma.rol.findFirst({
+        where: { Nombre: "Admin" }
+    });
+    if (!rolAdmin) throw new Error('Rol Admin no existe');
+
+    // 4. Asigna el rol Admin al usuario creado
+    await prisma.usuario_Rol.create({
+        data: {
+            Id_Usuario: usuarioAdmin.Id_Usuario,
+            Id_Rol: rolAdmin.id_Rol,
+        }
+    });
 
 }
 
