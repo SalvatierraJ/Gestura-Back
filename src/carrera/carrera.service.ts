@@ -23,16 +23,58 @@ export class CarreraService {
         }
     }
 
-    async getAllCarreras({ page , pageSize }) {
+    async getAllCarreras({ page, pageSize, user }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
-            const total = await this.prisma.carrera.count();
+
+            // 1. Traer los roles y carreras administradas por el usuario
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    Usuario_Rol: {
+                        include: {
+                            Rol: {
+                                include: {
+                                    rol_Carrera: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            // 2. Extraer los IDs de carreras que administra
+            const carrerasIds = usuario.Usuario_Rol
+                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            // Si no administra ninguna carrera, devuelve vacío
+            if (carrerasIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 3. Filtrar carreras por esos IDs (con paginación)
+            const total = await this.prisma.carrera.count({
+                where: { id_carrera: { in: carrerasIds } }
+            });
+
             const carreras = await this.prisma.carrera.findMany({
+                where: { id_carrera: { in: carrerasIds } },
                 skip,
                 take,
                 include: { facultad: true }
             });
+
             const items = carreras.map(carrera => {
                 const { created_at, updated_at, id_facultad, facultad, ...result } = carrera;
                 const facu = facultad ? facultad.nombre_facultad : null;
@@ -40,8 +82,8 @@ export class CarreraService {
             });
 
             return {
-                items,        
-                total,        
+                items,
+                total,
                 page: Number(page),
                 pageSize: Number(pageSize),
                 totalPages: Math.ceil(total / pageSize)
@@ -50,6 +92,7 @@ export class CarreraService {
             throw new Error(`Error fetching carreras: ${error.message}`);
         }
     }
+
 
     async getCarreraById(id: bigint) {
         return this.prisma.carrera.findUnique({

@@ -10,11 +10,9 @@ export class DefensaService {
         console.log("body", body);
         const estudiantesIds = Array.isArray(estudiantes) ? estudiantes : [estudiantes];
         const { sorteaArea, sorteaCaso, tipoDefensa } = body;
-        // Acepta tanto fechaDefensa como fechaHora (ajusta según tu front)
         const fechaDefensa = new Date(body.fechaDefensa || body.fechaHora);
         const defensasCreadas: any[] = [];
 
-        // 1. Casos YA ASIGNADOS para esa fecha
         const defensasMismaFecha = await this.prisma.defensa.findMany({
             where: {
                 fecha_defensa: fechaDefensa,
@@ -24,7 +22,6 @@ export class DefensaService {
         });
         const casosYaAsignados = new Set(defensasMismaFecha.map(d => d.id_casoEstudio?.toString()));
 
-        // 2. Tipo de defensa
         const tipo = await this.prisma.tipo_Defensa.findFirst({
             where: { Nombre: tipoDefensa }
         });
@@ -49,34 +46,29 @@ export class DefensaService {
             let areaSorteada: number | null = null;
             let areaNombre: string | null = null;
             if (sorteaArea) {
-                // Elije al azar, o si solo hay una, toma esa
                 const idx = areasRelacionadas.length === 1
                     ? 0
                     : Math.floor(Math.random() * areasRelacionadas.length);
                 areaSorteada = Number(areasRelacionadas[idx].Id_Area);
                 areaNombre = areasRelacionadas[idx].area?.nombre_area || null;
             } else {
-                // Si NO sortea, debe venir del body
                 areaSorteada = body.id_area ?? null;
                 const areaObj = areasRelacionadas.find(a => a.Id_Area === areaSorteada);
                 areaNombre = areaObj?.area?.nombre_area || null;
             }
 
-            // -------- CASO --------------
             let casoSorteado: number | null = null;
             let casoNombre: string | null = null;
             if (sorteaCaso && areaSorteada) {
                 const casos = await this.prisma.casos_de_estudio.findMany({
                     where: { id_area: areaSorteada, estado: true }
                 });
-                // Filtra los casos ya usados en la fecha
                 const casosDisponibles = casos.filter(
                     c => !casosYaAsignados.has(c.id_casoEstudio.toString())
                 );
                 if (!casosDisponibles.length) {
                     throw new HttpException(`No hay casos disponibles para el estudiante ${idEstudiante} en el área y fecha indicada.`, 400);
                 }
-                // Si solo hay uno, usa ese, sino sortea
                 const idx = casosDisponibles.length === 1
                     ? 0
                     : Math.floor(Math.random() * casosDisponibles.length);
@@ -109,7 +101,6 @@ export class DefensaService {
                 estadoDefensa = "PENDIENTE";
             }
 
-            // Si no sortea área o caso, pueden quedar null y eso está OK
             const defensa = await this.prisma.defensa.create({
                 data: {
                     fecha_defensa: fechaDefensa,
@@ -137,12 +128,65 @@ export class DefensaService {
         return defensasCreadas;
     }
 
-    async getAllDefensasDetalle({ page, pageSize, tipoDefensaNombre }: { page: number, pageSize: number, tipoDefensaNombre?: string }) {
+    async getAllDefensasDetalle({ page, pageSize, tipoDefensaNombre, user }: { page: number, pageSize: number, tipoDefensaNombre?: string, user: any }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
 
-            // 1. Filtrar por tipo si llega
+            // 1. Obtener carreras que administra el usuario
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    Usuario_Rol: {
+                        include: {
+                            Rol: {
+                                include: { rol_Carrera: true }
+                            }
+                        }
+                    }
+                }
+            });
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            const carrerasIds = usuario.Usuario_Rol
+                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            if (carrerasIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 2. Buscar IDs de estudiantes de esas carreras
+            const estudiantesCarrera = await this.prisma.estudiante_Carrera.findMany({
+                where: { Id_Carrera: { in: carrerasIds } },
+                select: { Id_Estudiante: true }
+            });
+            const estudianteIds = [
+                ...new Set(
+                    estudiantesCarrera
+                        .map(ec => ec.Id_Estudiante)
+                        .filter((id): id is bigint => id !== null && id !== undefined)
+                )
+            ];
+
+            if (estudianteIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 3. Filtro por tipo si llega
             let tipoDefensaId: number | undefined = undefined;
             if (tipoDefensaNombre) {
                 const tipo = await this.prisma.tipo_Defensa.findFirst({
@@ -152,16 +196,22 @@ export class DefensaService {
                 tipoDefensaId = Number(tipo.id_TipoDefensa);
             }
 
-            // 2. Contar total
+            // 4. Contar total (solo defensas de estudiantes de esas carreras)
             const total = await this.prisma.defensa.count({
-                where: tipoDefensaId ? { id_tipo_defensa: tipoDefensaId } : {},
+                where: {
+                    id_estudiante: { in: estudianteIds },
+                    ...(tipoDefensaId && { id_tipo_defensa: tipoDefensaId })
+                }
             });
 
-            // 3. Traer defensas
+            // 5. Traer defensas con filtro
             const defensas = await this.prisma.defensa.findMany({
                 skip,
                 take,
-                where: tipoDefensaId ? { id_tipo_defensa: tipoDefensaId } : {},
+                where: {
+                    id_estudiante: { in: estudianteIds },
+                    ...(tipoDefensaId && { id_tipo_defensa: tipoDefensaId })
+                },
                 include: {
                     estudiante: { include: { Persona: true } },
                     Tipo_Defensa: true,
@@ -174,7 +224,7 @@ export class DefensaService {
                 orderBy: { fecha_defensa: "desc" }
             });
 
-            // 4. Formatear resultados
+            // 6. Formatear resultados (igual que tu código original)
             const items = defensas.map((defensa) => {
                 // Estudiante
                 const persona = defensa.estudiante?.Persona;
@@ -232,6 +282,7 @@ export class DefensaService {
     }
 
 
+
     async agregarNotaDefensa(id_defensa: number, nota: number) {
 
         const defensa = await this.prisma.defensa.findUnique({
@@ -241,8 +292,6 @@ export class DefensaService {
 
         let estado = "REPROBADO";
         if (Number(nota) >= 51) estado = "APROBADO";
-
-        // Actualizar
         const defensaActualizada = await this.prisma.defensa.update({
             where: { id_defensa: BigInt(id_defensa) },
             data: {

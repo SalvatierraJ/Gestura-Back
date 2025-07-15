@@ -7,44 +7,111 @@ import { PrismaService } from 'src/database/prisma.services';
 export class TribunalDocenteService {
     constructor(private prisma: PrismaService) { }
 
-    async getTribunalesDocentes({ page, pageSize }) {
-
+    async getTribunalesDocentes({ page, pageSize, user }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
-            const total = await this.prisma.tribunal_Docente.count();
+
+            // 1. Obtener carreras que administra el usuario
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    Usuario_Rol: {
+                        include: {
+                            Rol: {
+                                include: {
+                                    rol_Carrera: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            const carrerasIds = usuario.Usuario_Rol
+                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            if (carrerasIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 2. Obtener las áreas relacionadas a esas carreras
+            const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+                where: { Id_Carrera: { in: carrerasIds } },
+                select: { Id_Area: true }
+            });
+
+            const areaIds = [
+                ...new Set(
+                    areaCarreraLinks
+                        .map(link => link.Id_Area)
+                        .filter((id): id is bigint => id !== null && id !== undefined)
+                )
+            ];
+
+            if (areaIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 3. Buscar solo los tribunales/docentes que tengan áreas en esas área
+            const total = await this.prisma.tribunal_Docente.count({
+                where: {
+                    area_Tribunal: {
+                        some: { id_area: { in: areaIds } }
+                    }
+                }
+            });
+
             const tribunales = await this.prisma.tribunal_Docente.findMany({
+                where: {
+                    area_Tribunal: {
+                        some: { id_area: { in: areaIds } }
+                    }
+                },
                 skip,
                 take,
                 include: {
                     Persona: true,
                     area_Tribunal: {
-                        include: {
-                            area: true
-                        }
-                    },
+                        include: { area: true }
+                    }
                 }
             });
+
             const items = tribunales.map(tribunal => {
-                const { created_at, updated_at, Persona, area_Tribunal, ...result } = tribunal
-                const Nombre = tribunal.Persona ? tribunal.Persona.Nombre : null;
-                const Apellido = tribunal.Persona ? tribunal.Persona.Apellido1 : null;
-                const Apellido2 = tribunal.Persona ? tribunal.Persona.Apellido2 : null;
-                const areas = (tribunal.area_Tribunal || [])
+                const { created_at, updated_at, Persona, area_Tribunal, ...result } = tribunal;
+                const Nombre = Persona ? Persona.Nombre : null;
+                const Apellido = Persona ? Persona.Apellido1 : null;
+                const Apellido2 = Persona ? Persona.Apellido2 : null;
+                const areas = (area_Tribunal || [])
                     .map(a =>
                         a.area
                             ? { nombre_area: a.area.nombre_area, id_area: a.area.id_area }
                             : null
                     )
-                    .filter(Boolean); // Quita los nulos
+                    .filter(Boolean);
 
-
-                const correo = tribunal.Persona ? tribunal.Persona.Correo : null;
-                const telefono = tribunal.Persona ? tribunal.Persona.telefono : null;
-                const ci = tribunal.Persona ? tribunal.Persona.CI : null;
+                const correo = Persona ? Persona.Correo : null;
+                const telefono = Persona ? Persona.telefono : null;
+                const ci = Persona ? Persona.CI : null;
                 return { ...result, Nombre, Apellido, Apellido2, areas, correo, telefono, ci };
             });
-
 
             return {
                 items,
@@ -57,6 +124,7 @@ export class TribunalDocenteService {
             throw new Error(`Error fetching tribunales docentes: ${error.message}`);
         }
     }
+
 
     async createTribunalDocente(body: any) {
         try {

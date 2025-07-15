@@ -18,17 +18,19 @@ export class RolService {
 
         const rolId = nuevoRol.id_Rol;
 
-        // 2. Asignar carreras
-        await Promise.all(
-            carreras.map(idCarrera =>
-                this.prisma.rol_Carrera.create({
-                    data: {
-                        Id_rol: rolId,
-                        Id_carrera: idCarrera,
-                    },
-                })
-            )
-        );
+        // 2. Asignar carreras (solo si NO es Estudiante)
+        if (nombre.trim().toLowerCase() !== "estudiante" && carreras && carreras.length > 0) {
+            await Promise.all(
+                carreras.map(idCarrera =>
+                    this.prisma.rol_Carrera.create({
+                        data: {
+                            Id_rol: rolId,
+                            Id_carrera: idCarrera,
+                        },
+                    })
+                )
+            );
+        }
 
         // 3. Asignar permisos por módulos
         if (esTotal) {
@@ -36,9 +38,12 @@ export class RolService {
                 this.prisma.modulos.findMany(),
                 this.prisma.permisos.findMany(),
             ]);
+            const modulosFiltrados = modulos.filter(
+                m => m.Nombre?.trim().toLowerCase() !== "mis defensas"
+            );
 
             await Promise.all(
-                modulos.map(modulo =>
+                modulosFiltrados.map(modulo =>
                     permisos.map(permiso =>
                         this.prisma.rol_Modulo_Permiso.create({
                             data: {
@@ -71,6 +76,7 @@ export class RolService {
     }
 
 
+
     async actualizarRol(data: UpdateRolDto) {
         const { id, nombre, carreras, modulosPermisos, esTotal } = data;
 
@@ -90,17 +96,19 @@ export class RolService {
             this.prisma.rol_Modulo_Permiso.deleteMany({ where: { Id_Rol: id } }),
         ]);
 
-        // 4. Insertar nuevas carreras
-        await Promise.all(
-            carreras.map(idCarrera =>
-                this.prisma.rol_Carrera.create({
-                    data: {
-                        Id_rol: id,
-                        Id_carrera: idCarrera,
-                    },
-                })
-            )
-        );
+        // 4. Insertar nuevas carreras (solo si el nombre NO es "estudiante")
+        if (nombre.trim().toLowerCase() !== "estudiante" && carreras && carreras.length > 0) {
+            await Promise.all(
+                carreras.map(idCarrera =>
+                    this.prisma.rol_Carrera.create({
+                        data: {
+                            Id_rol: id,
+                            Id_carrera: idCarrera,
+                        },
+                    })
+                )
+            );
+        }
 
         // 5. Asignar nuevos permisos
         if (esTotal) {
@@ -141,6 +149,7 @@ export class RolService {
             rolId: id,
         };
     }
+
 
 
     async eliminarRol(id: number) {

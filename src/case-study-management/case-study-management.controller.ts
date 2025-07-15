@@ -2,10 +2,11 @@ import { CasosEstudioService } from './../casos-estudio/casos-estudio.service';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { CarreraService } from 'src/carrera/carrera.service';
 import { BadRequestException, Body, Controller, Get, Post, Put, Request, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
-import {FilesInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { FacultadService } from 'src/facultad/facultad.service';
 import { CreateCarrera } from 'src/carrera/dto/create-carrera.dto';
 import { AreaService } from 'src/area/area.service';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 
 @Controller('case-study-management')
 export class CaseStudyManagementController {
@@ -22,12 +23,13 @@ export class CaseStudyManagementController {
     async getAllFacultades() {
         return this.facultadService.getAllFacultades();
     }
-    // carrera Management
+    @UseGuards(JwtAuthGuard)
     @Get('/carreras/:page/:pageSize')
     async getAllCarreras(@Request() req) {
+        const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.carreraService.getAllCarreras({ page, pageSize });
+        return this.carreraService.getAllCarreras({ page, pageSize, user: user.userId });
     }
     @Post('/crear-carrera')
     async createCarrera(@Body() body: CreateCarrera) {
@@ -44,11 +46,13 @@ export class CaseStudyManagementController {
         return this.carreraService.updateStateCarrera(id, body);
     }
     // Area Management
+    @UseGuards(JwtAuthGuard)
     @Get('/areas/:page/:pageSize')
     async getAllAreas(@Request() req) {
+        const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.areaService.getAllAreas({ page, pageSize });
+        return this.areaService.getAllAreas({ page, pageSize, user: user.userId });
     }
     @Post('/crear-area')
     async createArea(@Body() body: any) {
@@ -94,7 +98,7 @@ export class CaseStudyManagementController {
         const { id_area } = body;
         if (!id_area) throw new BadRequestException('id_area requerido');
         if (!files || !files.length) throw new BadRequestException('Debe subir al menos un archivo');
-        
+
 
         const casosData = files.map((file, idx) => {
             const meta = Array.isArray(body.data) ? body.data[idx] : {};
@@ -133,12 +137,13 @@ export class CaseStudyManagementController {
 
         return { message: 'Casos de estudio creados', casos: resultados };
     }
-
+    @UseGuards(JwtAuthGuard)
     @Get('/casos-estudio/:page/:pageSize')
     async getAllCasosEstudio(@Request() req) {
+         const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.CasosEstudioService.getAllCasosEstudio({ page, pageSize });
+        return this.CasosEstudioService.getAllCasosEstudio({ page, pageSize,user: user.userId });
     }
 
 

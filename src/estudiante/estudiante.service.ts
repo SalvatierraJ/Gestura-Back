@@ -82,12 +82,63 @@ export class EstudianteService {
         }
     }
 
-    async getAllEstudiantes({ page, pageSize }) {
+    async getAllEstudiantes({ page, pageSize, user }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
-            const total = await this.prisma.estudiante.count();
+
+            // 1. Obtener carreras que administra el usuario
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    Usuario_Rol: {
+                        include: {
+                            Rol: {
+                                include: {
+                                    rol_Carrera: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            const carrerasIds = usuario.Usuario_Rol
+                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            if (carrerasIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 2. Buscar solo estudiantes de esas carreras (usando la tabla intermedia estudiante_Carrera)
+            const total = await this.prisma.estudiante.count({
+                where: {
+                    estudiante_Carrera: {
+                        some: {
+                            Id_Carrera: { in: carrerasIds }
+                        }
+                    }
+                }
+            });
+
             const estudiantes = await this.prisma.estudiante.findMany({
+                where: {
+                    estudiante_Carrera: {
+                        some: {
+                            Id_Carrera: { in: carrerasIds }
+                        }
+                    }
+                },
                 skip,
                 take,
                 include: {
@@ -110,7 +161,6 @@ export class EstudianteService {
                             }
                         }
                     }
-
                 }
             });
 
@@ -132,10 +182,12 @@ export class EstudianteService {
                     defensas: (defensa || []).map(d => ({
                         id_defensa: d.id_defensa,
                         estado: d.estado,
-                        nombre_tipo_defensa: d.Tipo_Defensa?.Nombre || ''
+                        nombre_tipo_defensa: d.Tipo_Defensa?.Nombre || '',
+                        fecha_defensa: d.fecha_defensa
                     }))
                 };
             });
+
             return {
                 items,
                 total,
@@ -147,5 +199,6 @@ export class EstudianteService {
             throw new Error(`Error fetching estudiantes: ${error.message}`);
         }
     }
+
 
 }

@@ -58,17 +58,81 @@ export class UserService {
         try {
             const user = await this.prisma.usuario.findFirst({
                 where: { Id_Usuario: id },
-                include: { Usuario_Rol: { include: { Rol: true } } }
+                include: {
+                    Usuario_Rol: {
+                        include: {
+                            Rol: {
+                                include: {
+                                    rol_Modulo_Permiso: {
+                                        include: {
+                                            Modulos: true,
+                                            Permisos: true
+                                        }
+                                    },
+                                    rol_Carrera: {
+                                        include: {
+                                            carrera: true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             });
             if (!user) throw new NotFoundException(`User with ID ${id} not found`);
-            const { Password, Id_Persona, Id_Usuario, created_at, Usuario_Rol, updated_at, ...result } = user;
-            const rol = Usuario_Rol && Usuario_Rol.length > 0 ? Usuario_Rol[0]?.Rol?.Nombre || null : null;
-            return { ...result, rol };
+
+            const roles = user.Usuario_Rol
+                .filter(({ Rol }) => Rol !== null)
+                .map(({ Rol }) => ({
+                    id_Rol: Rol!.id_Rol,
+                    Nombre: Rol!.Nombre,
+                    carreras: (Rol!.rol_Carrera ?? []).map(rc => ({
+                        id_carrera: rc.carrera?.id_carrera,
+                        nombre_carrera: rc.carrera?.nombre_carrera
+                    })),
+                    modulos: Object.values(
+                        (Rol!.rol_Modulo_Permiso ?? []).reduce((acc, rmp) => {
+                            if (!rmp.Modulos) return acc;
+                            const id = rmp.Modulos.Id_Modulo;
+                            const idKey = id.toString();
+                            if (!acc[idKey]) {
+                                acc[idKey] = {
+                                    Id_Modulo: rmp.Modulos.Id_Modulo,
+                                    Nombre: rmp.Modulos.Nombre,
+                                    permisos: []
+                                };
+                            }
+                            if (rmp.Permisos) {
+                                acc[idKey].permisos.push({
+                                    Id_Permiso: rmp.Permisos.Id_Permiso,
+                                    Nombre: rmp.Permisos.Nombre,
+                                    Descripcion: rmp.Permisos.Descripcion
+                                });
+                            }
+                            return acc;
+                        }, {} as Record<number, any>)
+                    )
+                }))
+                .sort((a, b) =>
+                    b.modulos.reduce((acc, m) => acc + m.permisos.length, 0) -
+                    a.modulos.reduce((acc, m) => acc + m.permisos.length, 0)
+                );
+
+            const {
+                Password, Id_Persona, Id_Usuario, created_at, Usuario_Rol, updated_at, ...restUser
+            } = user;
+
+            return {
+                ...restUser,
+                roles
+            };
         } catch (error) {
             if (error instanceof NotFoundException) throw new NotFoundException(error.message);
             if (error instanceof Error) throw new InternalServerErrorException(error.message);
         }
     }
+
 
     async findAllUsuariosConRoles({ page, pageSize }) {
         try {
@@ -105,7 +169,7 @@ export class UserService {
             const items = usuarios.map(user => ({
                 id: user.Id_Usuario,
                 username: user.Nombre_Usuario,
-                nombres: `${user.Persona?.Nombre ?? ''} ${user.Persona?.Apellido1 ?? ''} ${user.Persona?.Apellido2 ?? ''}`.trim() ,
+                nombres: `${user.Persona?.Nombre ?? ''} ${user.Persona?.Apellido1 ?? ''} ${user.Persona?.Apellido2 ?? ''}`.trim(),
                 correo: user.Persona?.Correo ?? '',
                 roles: (user.Usuario_Rol || [])
                     .map(ur => ({

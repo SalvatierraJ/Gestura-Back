@@ -32,15 +32,72 @@ export class AreaService {
             throw new Error(`Error creating area: ${error.message}`);
         }
     }
-    async getAllAreas({ page, pageSize }) {
+    async getAllAreas({ page, pageSize, user }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
-            const total = await this.prisma.area.count();
+
+            // 1. Traer los roles y carreras administradas por el usuario
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    Usuario_Rol: {
+                        include: {
+                            Rol: {
+                                include: {
+                                    rol_Carrera: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            // 2. Extraer los IDs de carreras que administra
+            const carrerasIds = usuario.Usuario_Rol
+                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+
+            if (carrerasIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 3. Buscar las áreas que correspondan a esas carreras (por la tabla carrera_Area)
+            // Primero, buscar los IDs de area relacionados
+            const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+                where: { Id_Carrera: { in: carrerasIds } },
+                select: { Id_Area: true }
+            });
+
+            const areaIds = [
+                ...new Set(
+                    areaCarreraLinks
+                        .map(link => link.Id_Area)
+                        .filter((id): id is bigint => id !== null && id !== undefined)
+                )
+            ];
+
+            const total = await this.prisma.area.count({
+                where: { id_area: { in: areaIds } }
+            });
+
             const areas = await this.prisma.area.findMany({
+                where: { id_area: { in: areaIds } },
                 skip,
                 take,
-                include: { carrera_Area: { include: { carrera: true } } }
+                include: {
+                    carrera_Area: { include: { carrera: true } }
+                }
             });
 
             const items = areas.map(area => {
@@ -62,6 +119,7 @@ export class AreaService {
             throw new Error(`Error fetching areas: ${error.message}`);
         }
     }
+
 
     async updateArea(id: bigint, body: any) {
         try {

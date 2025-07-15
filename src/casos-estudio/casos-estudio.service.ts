@@ -4,7 +4,7 @@ import { PrismaService } from 'src/database/prisma.services';
 @Injectable()
 export class CasosEstudioService {
 
-    constructor(private prisma: PrismaService) {}
+    constructor(private prisma: PrismaService) { }
     async createCasoEstudio(Titulo: string, Autor: string, Tema: string, Fecha_Creacion: Date, id_area: number, url: string) {
         try {
             const newCasoEstudio = await this.prisma.casos_de_estudio.create({
@@ -37,26 +37,94 @@ export class CasosEstudioService {
         }
     }
 
-    async getAllCasosEstudio({ page, pageSize }) {
+    async getAllCasosEstudio({ page, pageSize, user }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
-            const total = await this.prisma.casos_de_estudio.count();
+
+            // 1. Obtener carreras que administra el usuario
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    Usuario_Rol: {
+                        include: {
+                            Rol: {
+                                include: {
+                                    rol_Carrera: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            const carrerasIds = usuario.Usuario_Rol
+                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            if (carrerasIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 2. Obtener las áreas relacionadas a esas carreras
+            const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+                where: { Id_Carrera: { in: carrerasIds } },
+                select: { Id_Area: true }
+            });
+
+            const areaIds = [
+                ...new Set(
+                    areaCarreraLinks
+                        .map(link => link.Id_Area)
+                        .filter((id): id is bigint => id !== null && id !== undefined)
+                )
+            ];
+
+            if (areaIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                };
+            }
+
+            // 3. Filtrar casos de estudio por esas áreas
+            const total = await this.prisma.casos_de_estudio.count({
+                where: { id_area: { in: areaIds } }
+            });
+
             const casosEstudio = await this.prisma.casos_de_estudio.findMany({
+                where: { id_area: { in: areaIds } },
                 skip,
                 take,
                 include: { area: true }
             });
+
             const metadatos = await this.prisma.metadatos.findMany({
-                where: { modelo_Origen: "casos_de_estudio", Id_Origen: { in: casosEstudio.map(caso => caso.id_casoEstudio) } },
+                where: {
+                    modelo_Origen: "casos_de_estudio",
+                    Id_Origen: { in: casosEstudio.map(caso => caso.id_casoEstudio) }
+                },
                 select: {
                     Id_Origen: true,
                     Titulo: true,
                     Autor: true,
                     Tema: true,
                     Fecha_Creacion: true
-                }   
+                }
             });
+
             const items = casosEstudio.map(caso => {
                 const metadata = metadatos.find(meta => meta.Id_Origen === caso.id_casoEstudio);
                 if (!metadata) {
@@ -65,7 +133,7 @@ export class CasosEstudioService {
                 const { created_at, updated_at, id_area, area, ...result } = caso;
                 const areaName = area ? area.nombre_area : null;
                 return { ...result, areaName, ...metadata };
-            });
+            }).filter(Boolean);
 
             return {
                 items,
@@ -78,5 +146,6 @@ export class CasosEstudioService {
             throw new Error(`Error fetching case studies: ${error.message}`);
         }
     }
+
 
 }

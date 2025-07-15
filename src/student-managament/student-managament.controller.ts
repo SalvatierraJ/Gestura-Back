@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post, Put, Request } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Request, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { DefensaService } from 'src/defensa/defensa.service';
 import { EstudianteService } from 'src/estudiante/estudiante.service';
 
@@ -6,12 +7,13 @@ import { EstudianteService } from 'src/estudiante/estudiante.service';
 export class StudentManagamentController {
 
     constructor(private estudianteService: EstudianteService, private defensaService: DefensaService) { }
-
+    @UseGuards(JwtAuthGuard)
     @Get('/estudiantes/:page/:pageSize')
     async getAllCarreras(@Request() req) {
+        const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.estudianteService.getAllEstudiantes({ page, pageSize });
+        return this.estudianteService.getAllEstudiantes({ page, pageSize,user: user.userId  });
     }
 
     @Post('/nuevo-estudiante')

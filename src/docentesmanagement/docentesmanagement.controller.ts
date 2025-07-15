@@ -1,18 +1,20 @@
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { TribunalDocenteService } from './../tribunal-docente/tribunal-docente.service';
-import { Body, Controller, Get,Post,Put,Request } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Request, UseGuards } from '@nestjs/common';
 
 @Controller('docentesmanagement')
 export class DocentesmanagementController {
 
     constructor(
         private TribunalDocenteService: TribunalDocenteService
-    ) {}
-
+    ) { }
+    @UseGuards(JwtAuthGuard)
     @Get('/docentes/:page/:pageSize')
     async getAllDocentes(@Request() req) {
+        const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.TribunalDocenteService.getTribunalesDocentes({ page, pageSize });
+        return this.TribunalDocenteService.getTribunalesDocentes({ page, pageSize,user: user.userId });
     }
     @Post('/crear-docente')
     async createDocente(@Body() body: any) {
