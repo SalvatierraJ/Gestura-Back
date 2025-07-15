@@ -1,4 +1,3 @@
-import { Usuario, Rol, Usuario_Rol } from './../../node_modules/.prisma/client/index.d';
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';

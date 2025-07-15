@@ -1,5 +1,3 @@
-import { create } from 'domain';
-import { area } from './../../node_modules/.prisma/client/index.d';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 

@@ -1,4 +1,3 @@
-import { facultad } from './../../node_modules/.prisma/client/index.d';
 import { Module } from '@nestjs/common';
 import { CaseStudyManagementController } from './case-study-management.controller';
 import { CaseStudyManagementService } from './case-study-management.service';
