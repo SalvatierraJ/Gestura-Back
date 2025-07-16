@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client'
+import * as bcrypt from 'bcrypt';
+
 const prisma = new PrismaClient()
 
 async function main() {
@@ -146,11 +148,13 @@ async function main() {
         }
     });
 
+    const salts = await bcrypt.genSalt()
+    const hashedPassword = await bcrypt.hash("admin123", salts)
     // 2. Crea el usuario y le asigna el id de persona
     const usuarioAdmin = await prisma.usuario.create({
         data: {
             Nombre_Usuario: "admin",
-            Password: "admin123", // ¡En producción usa hash!
+            Password: hashedPassword, // ¡En producción usa hash!
             Id_Persona: personaAdmin.Id_Persona,
         }
     });
