@@ -96,3 +96,111 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+
+# Guía de Commits y Changelog Profesional con Git Flow
+
+Esta guía te muestra cómo estructurar los mensajes de commit y cómo identificar y documentar los cambios en tu changelog profesional. Se enfoca en el uso de ramas `release` en Git Flow para generar automáticamente un changelog (`CHANGELOG.md`) solo a partir de los commits relevantes.
+
+---
+
+## 1. Tipos de Commits y Ejemplos
+
+| Tipo     | Icono / Color | ¿Cuándo usarlo?                                   | Ejemplo de commit                       |
+| -------- | ------------- | ------------------------------------------------- | --------------------------------------- |
+| feat     | 🟢 Verde      | Cuando agregas una nueva funcionalidad            | feat(api): agrega endpoint de usuarios  |
+| fix      | 🔴 Rojo       | Cuando corriges un error o bug                    | fix(auth): corrige bug de login         |
+| chore    | 🟡 Amarillo   | Cambios menores, tareas de mantenimiento          | chore: actualiza dependencias           |
+| refactor | 🔵 Azul claro | Reestructura el código, sin cambiar funcionalidad | refactor(core): reorganiza validaciones |
+
+**Regla de oro:**
+
+* Cada commit debe comenzar con el tipo en minúscula, seguido de dos puntos y un breve resumen.
+* Si el cambio afecta un módulo específico, ponlo entre paréntesis: `tipo(módulo): mensaje`.
+
+### Más ejemplos
+
+* feat(dashboard): agrega gráfico de ventas mensual
+* fix(ventas): soluciona error de cálculo de impuestos
+* chore(ci): configura action de deploy automático
+* refactor(utils): simplifica función de formateo de fechas
+
+---
+
+## 2. ¿Cómo identificar el tipo de commit?
+
+| Escenario                                                    | Tipo           | Ejemplo                                               |
+| ------------------------------------------------------------ | -------------- | ----------------------------------------------------- |
+| Agregas un nuevo módulo, endpoint o funcionalidad importante | feat           | feat(reporte): agrega exportación PDF                 |
+| Corriges un error reportado por usuarios                     | fix            | fix(notificaciones): corrige duplicidad de avisos     |
+| Solo actualizas librerías, dependencias, o cambias configs   | chore          | chore: actualiza ESLint                               |
+| Mejoras el código sin modificar lo que hace                  | refactor       | refactor(api): unifica validación de datos            |
+| Modificas estilos visuales o layout en frontend              | feat o chore\* | feat(ui): añade dark mode / chore(ui): ajusta padding |
+
+\* Usa feat si es una mejora visible para el usuario, chore si es solo técnico.
+
+---
+
+## 3. Generar el Changelog en el Release
+
+El changelog se genera **solo al fusionar una rama `release`** a main. Se puede automatizar con \[`standard-version`] y convenciones de commit:
+
+### Pasos sugeridos:
+
+1. Realiza tus commits siguiendo la guía de arriba.
+2. Cuando estés listo para lanzar una versión:
+
+   * `git flow release start 1.2.0`
+3. Si usas `standard-version`, ejecuta:
+
+   * `npm run release`
+   * Esto crea o actualiza `CHANGELOG.md` solo con los commits desde la última versión/tag.
+4. Finaliza el release:
+
+   * `git flow release finish 1.2.0`
+   * Esto hace merge a main y develop, y agrega el tag.
+5. Sube los cambios:
+
+   * `git push --all && git push --tags`
+
+### Ejemplo de entrada en CHANGELOG.md
+
+```markdown
+## [1.2.0] - 2025-07-16
+### 🟢 Features
+- feat(api): agrega endpoint para generar reportes PDF
+- feat(ui): nuevo selector de rango de fechas
+
+### 🔴 Fixes
+- fix(ventas): corrige cálculo erróneo de descuento
+
+### 🟡 Chores
+- chore: actualiza dependencias y scripts npm
+
+### 🔵 Refactors
+- refactor(core): reorganiza estructura de servicios
+```
+
+---
+
+## 4. Consejos prácticos
+
+* Haz commits pequeños y enfocados (un cambio, un commit).
+* Usa inglés si el proyecto es colaborativo internacional; español si es interno.
+* No mezcles tipos en un solo commit. Si hiciste un fix y un refactor, haz dos commits.
+* Antes de hacer el release, revisa el historial con `git log --oneline` y asegúrate de que los mensajes sean claros.
+
+---
+
+## 5. Recursos útiles
+
+* [Conventional Commits](https://www.conventionalcommits.org/es/v1.0.0/)
+* [standard-version](https://github.com/conventional-changelog/standard-version)
+* [Git Flow cheatsheet](https://danielkummer.github.io/git-flow-cheatsheet/)
+
+---
+
+**¡Esta guía puede ser parte de tu repositorio como `COMMIT_GUIDELINES.md`!**
+
+Cualquier duda, sugerencia o ajuste, ¡avísame y la personalizo más aún para tu equipo.
+
