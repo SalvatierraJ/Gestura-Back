@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ModulosService } from 'src/modulos/modulos.service';
 import { PermisosService } from 'src/permisos/permisos.service';
 import { CreateRolDto } from 'src/rol/dto/CreateRolDto';
@@ -31,22 +32,24 @@ export class ControlaccesomanagamentController {
     deleteRol(@Param('id', ParseIntPipe) id: number) {
         return this.rolService.eliminarRol(id);
     }
-
+    @UseGuards(JwtAuthGuard)
     @Get('/roles')
     async getRoles(
         @Query('pagina') pagina: number = 1,
-        @Query('limite') limite: number = 10
+        @Query('limite') limite: number = 10,
+        @Request() req
     ) {
-        return this.rolService.obtenerRolesPaginados(pagina, limite);
+        const user = req.user;
+        return this.rolService.obtenerRolesPaginados(pagina, limite,user.userId);
     }
 
     @Get('/permisos')
-    async getPermisos(){
+    async getPermisos() {
         return this.permisosService.getAllPermisos();
     }
 
     @Get('/modulos')
-    async getModulos(){
+    async getModulos() {
         return this.moduloService.getAllModulos();
     }
 

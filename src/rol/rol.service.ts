@@ -153,13 +153,11 @@ export class RolService {
 
 
     async eliminarRol(id: number) {
-        // 1. Verificar si el rol existe
         const rolExistente = await this.prisma.rol.findUnique({ where: { id_Rol: id } });
         if (!rolExistente) {
             throw new NotFoundException('Rol no encontrado');
         }
 
-        // 2. Eliminar relaciones
         await this.prisma.$transaction([
             this.prisma.rol_Carrera.deleteMany({ where: { Id_rol: id } }),
             this.prisma.rol_Modulo_Permiso.deleteMany({ where: { Id_Rol: id } }),
@@ -172,13 +170,50 @@ export class RolService {
         };
     }
 
-    async obtenerRolesPaginados(pagina: number = 1, limite: number = 10) {
+    async obtenerRolesPaginados(
+        pagina: number = 1,
+        limite: number = 10,
+        userId: number | string
+    ) {
         const skip = (pagina - 1) * limite;
 
-        const [roles, total] = await this.prisma.$transaction([
-            this.prisma.rol.findMany({
-                skip,
-                take: Number(limite),
+        const usuario = await this.prisma.usuario.findUnique({
+            where: { Id_Usuario: BigInt(userId) },
+            include: {
+                Usuario_Rol: {
+                    include: {
+                        Rol: {
+                            include: {
+                                rol_Carrera: {
+                                    include: {
+                                        carrera: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!usuario) {
+            throw new Error("Usuario no encontrado");
+        }
+
+        const idsRolesUsuario = usuario.Usuario_Rol
+            .map(ur => ur.Id_Rol)
+            .filter((id): id is bigint => id !== null);
+
+        const esAdmin = usuario.Usuario_Rol.some(
+            ur => ur.Rol?.Nombre?.toLowerCase() === "admin"
+        );
+
+        let rolesDB: any[] = [];
+
+        if (esAdmin) {
+            rolesDB = await this.prisma.rol.findMany({
+                where: {
+                    id_Rol: { notIn: idsRolesUsuario },
+                },
                 include: {
                     rol_Carrera: {
                         include: {
@@ -192,20 +227,62 @@ export class RolService {
                         },
                     },
                 },
-            }),
-            this.prisma.rol.count(),
-        ]);
+            });
+        } else {
+            const carrerasUsuario = usuario.Usuario_Rol
+                .flatMap(ur => ur.Rol?.rol_Carrera ?? [])
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null);
+
+            rolesDB = await this.prisma.rol.findMany({
+                where: {
+                    Nombre: { not: "Admin" },
+                    id_Rol: { notIn: idsRolesUsuario },
+                },
+                include: {
+                    rol_Carrera: {
+                        include: {
+                            carrera: true,
+                        },
+                    },
+                    rol_Modulo_Permiso: {
+                        include: {
+                            Modulos: true,
+                            Permisos: true,
+                        },
+                    },
+                },
+            });
+
+            const filtrarIguales = (arr1: any[], arr2: any[]) => {
+                const set1 = new Set(arr1.map(String));
+                const set2 = new Set(arr2.map(String));
+                return (
+                    set1.size === set2.size && [...set1].every((x) => set2.has(x))
+                );
+            };
+
+            rolesDB = rolesDB.filter((rol) =>
+                filtrarIguales(
+                    rol.rol_Carrera.map((rc) => rc.Id_carrera),
+                    carrerasUsuario
+                )
+            );
+        }
+
+        const total = rolesDB.length;
+        const paginados = rolesDB.slice(skip, skip + limite);
 
         return {
             total,
             pagina,
             totalPaginas: Math.ceil(total / limite),
-            datos: roles.map((rol) => ({
+            datos: paginados.map((rol) => ({
                 id: rol.id_Rol,
                 nombre: rol.Nombre,
                 carreras: rol.rol_Carrera.map((rc) => ({
-                    id: rc.carrera?.id_carrera,
-                    nombre: rc.carrera?.nombre_carrera,
+                    id: rc.Id_carrera,
+                    nombre:rc.carrera?.nombre_carrera || null,
                 })),
                 modulos: rol.rol_Modulo_Permiso.map((rmp) => ({
                     id: rmp.Modulos?.Id_Modulo,
@@ -219,6 +296,8 @@ export class RolService {
             })),
         };
     }
+
+
 
 
 
