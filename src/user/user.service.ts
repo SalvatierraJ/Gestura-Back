@@ -58,6 +58,7 @@ export class UserService {
             const user = await this.prisma.usuario.findFirst({
                 where: { Id_Usuario: id },
                 include: {
+                    Persona: true,
                     Usuario_Rol: {
                         include: {
                             Rol: {
@@ -190,7 +191,49 @@ export class UserService {
         }
     }
 
-
+    async updateUserProfile(idUsuario: number, body: any) {
+        const { Persona, Password, ...usuarioData } = body;
+        try {
+            const usuarioActual = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: idUsuario },
+            });
+    
+            if (!usuarioActual) {
+                throw new NotFoundException(`Usuario con ID ${idUsuario} no encontrado.`);
+            }
+    
+            if (Persona && Object.keys(Persona).length > 0) {
+                await this.prisma.persona.update({
+                    where: { Id_Persona: usuarioActual.Id_Persona },
+                    data: Persona, 
+                });
+            }
+    
+            if (Password) {
+                const salt = await bcrypt.genSalt();
+                usuarioData.Password = await bcrypt.hash(Password, salt);
+            }
+    
+            if (Object.keys(usuarioData).length > 0) {
+                await this.prisma.usuario.update({
+                    where: { Id_Usuario: idUsuario },
+                    data: usuarioData,
+                });
+            }
+            
+       
+            return this.getUserById(BigInt(idUsuario));
+    
+        } catch (error) {
+            if (error instanceof NotFoundException) {
+                throw error;
+            }
+            if (error instanceof Error) {
+                throw new InternalServerErrorException(error.message);
+            }
+            throw new InternalServerErrorException('Error inesperado al actualizar el perfil.');
+        }
+    }
     async updateUser(idUsuario: number, body: any) {
         const { Id_Rol, ...userData } = body;
 
