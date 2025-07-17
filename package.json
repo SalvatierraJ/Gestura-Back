@@ -1,6 +1,6 @@
 {
   "name": "gestura-bakend",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "",
   "author": "",
   "private": true,
@@ -19,7 +19,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:seed": "ts-node prisma/seed.ts",
-     "release": "standard-version"
+    "release": "standard-version"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.0",
