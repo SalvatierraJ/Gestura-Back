@@ -133,7 +133,6 @@ export class DefensaService {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
 
-            // 1. Obtener carreras que administra el usuario
             const usuario = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: user },
                 include: {
@@ -163,7 +162,6 @@ export class DefensaService {
                 };
             }
 
-            // 2. Buscar IDs de estudiantes de esas carreras
             const estudiantesCarrera = await this.prisma.estudiante_Carrera.findMany({
                 where: { Id_Carrera: { in: carrerasIds } },
                 select: { Id_Estudiante: true }
@@ -200,7 +198,7 @@ export class DefensaService {
             const total = await this.prisma.defensa.count({
                 where: {
                     id_estudiante: { in: estudianteIds },
-                    ...(tipoDefensaId && { id_tipo_defensa: tipoDefensaId })
+                     ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
                 }
             });
 
@@ -210,7 +208,7 @@ export class DefensaService {
                 take,
                 where: {
                     id_estudiante: { in: estudianteIds },
-                    ...(tipoDefensaId && { id_tipo_defensa: tipoDefensaId })
+                     ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
                 },
                 include: {
                     estudiante: { include: { Persona: true } },

@@ -8,18 +8,18 @@ export class DefensasmanagamentController {
     constructor(private defensaService: DefensaService, private juradoService: JuradosService) { }
 
     @UseGuards(JwtAuthGuard)
-    @Get('/detalles/:page/:pageSize/:tipo')
+    @Get('/detalles/:page/:pageSize/:tipoDefensa')
     async getDefensasDetallePaginado(
-        @Query('page') page: string,
-        @Query('pageSize') pageSize: string,
-        @Query('tipo') tipo?: string,
         @Request() req?: any
     ) {
+        const page = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const tipoDefensa= String(req.params.tipoDefensa);
         const user = req.user;
         return this.defensaService.getAllDefensasDetalle({
             page: Number(page) || 1,
             pageSize: Number(pageSize) || 10,
-            tipoDefensaNombre: tipo,
+            tipoDefensaNombre: tipoDefensa,
             user: user.userId
         });
     }
