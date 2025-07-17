@@ -130,7 +130,7 @@ export class CasosEstudioService {
                 if (!metadata) {
                     throw new Error(`Metadata not found for case study ID ${caso.id_casoEstudio}`);
                 }
-                const { created_at, updated_at, id_area, area, ...result } = caso;
+                const { created_at, updated_at, area, ...result } = caso;
                 const areaName = area ? area.nombre_area : null;
                 return { ...result, areaName, ...metadata };
             }).filter(Boolean);
@@ -144,6 +144,64 @@ export class CasosEstudioService {
             };
         } catch (error) {
             throw new Error(`Error fetching case studies: ${error.message}`);
+        }
+    }
+
+    async updateStateCasoEstudio(id: bigint, body: any) {
+        try {
+            const updatedcaso = await this.prisma.casos_de_estudio.update({
+                where: { id_casoEstudio: id },
+                data: {
+                    estado: body.estado,
+                    updated_at: new Date(),
+                }
+            });
+            const { created_at, updated_at, ...result } = updatedcaso;
+            return result;
+        } catch (error) {
+            throw new Error(`Error updating caso state: ${error.message}`);
+        }
+    }
+
+
+    async updateCasoEstudio(
+        id_casoEstudio: number,
+        datos: {
+            Titulo: string,
+            Autor: string,
+            Tema: string,
+            Fecha_Creacion: Date,
+            id_area: number,
+        }
+    ) {
+        try {
+            const updatedCaso = await this.prisma.casos_de_estudio.update({
+                where: { id_casoEstudio },
+                data: {
+                    Nombre_Archivo: datos.Titulo,
+                    fecha_Subida: datos.Fecha_Creacion,
+                    id_area: datos.id_area,
+                    updated_at: new Date(),
+                },
+            });
+
+            await this.prisma.metadatos.updateMany({
+                where: {
+                    modelo_Origen: "casos_de_estudio",
+                    Id_Origen: id_casoEstudio,
+                },
+                data: {
+                    Titulo: datos.Titulo,
+                    Autor: datos.Autor,
+                    Tema: datos.Tema,
+                    Fecha_Creacion: datos.Fecha_Creacion,
+                    updated_at: new Date(),
+                },
+            });
+
+            return { success: true, data: updatedCaso };
+        } catch (error) {
+            throw new Error(`Error updating case study: ${error.message}`);
         }
     }
 

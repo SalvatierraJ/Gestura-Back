@@ -1,5 +1,5 @@
 
-import { Injectable } from '@nestjs/common';
+import { Injectable,HttpException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 
 @Injectable()
@@ -198,6 +198,89 @@ export class EstudianteService {
             throw new Error(`Error fetching estudiantes: ${error.message}`);
         }
     }
+
+    async createEstudiantesMasivos(body: any) {
+        try {
+            const estudiantes = body.estudiantes || [];
+            if (!Array.isArray(estudiantes) || estudiantes.length === 0) {
+                throw new HttpException('Debes enviar al menos un estudiante',400);
+            }
+
+            const carrerasUnicas = [...new Set(estudiantes.map(e => e.carrera.trim()))];
+            const carrerasDb = await this.prisma.carrera.findMany({
+                where: { nombre_carrera: { in: carrerasUnicas } }
+            });
+            const carreraMap = {};
+            carrerasDb.forEach(c => { carreraMap[c.nombre_carrera.trim()] = c.id_carrera });
+
+            type Fallido = {
+                estudiante: any;
+                motivo: string;
+            };
+
+            type Exitoso = {
+                estudiante: any;
+                id: number | string;
+                mensaje: string;
+            };
+            const exitosos: Exitoso[] = [];
+            const fallidos: Fallido[] = [];
+
+            for (const estudiante of estudiantes) {
+                const idCarrera = carreraMap[estudiante.carrera.trim()];
+                if (!idCarrera) {
+                    fallidos.push({
+                        estudiante,
+                        motivo: `Carrera no encontrada: ${estudiante.carrera}`
+                    });
+                    continue;
+                }
+                try {
+                    const creado = await this.prisma.estudiante.create({
+                        data: {
+                            nroRegistro: String(estudiante.numeroregistro),
+                            Persona: {
+                                create: {
+                                    Nombre: estudiante.nombre,
+                                    Apellido1: estudiante.apellido1,
+                                    Apellido2: estudiante.apellido2,
+                                    Correo: estudiante.correo,
+                                    telefono: Number(estudiante.telefono),
+                                    CI: String(estudiante.ci),
+                                },
+                            },
+                            estudiante_Carrera: {
+                                create: {
+                                    Id_Carrera: idCarrera
+                                }
+                            },
+                            created_at: new Date(),
+                            updated_at: new Date(),
+                        },
+                    });
+                    exitosos.push({
+                        estudiante: estudiante,
+                        id: Number(creado.id_estudiante),
+                        mensaje: "Guardado correctamente"
+                    });
+                } catch (err) {
+                    fallidos.push({
+                        estudiante,
+                        motivo: `Error al guardar: ${err.message}`
+                    });
+                }
+            }
+
+            return {
+                exitosos,
+                fallidos,
+                resumen: `Guardados: ${exitosos.length}, Fallidos: ${fallidos.length}`
+            };
+        } catch (error) {
+            throw new HttpException(`Error creando estudiantes: ${error.message}`,400);
+        }
+    }
+
 
 
 }

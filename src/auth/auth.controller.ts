@@ -25,6 +25,15 @@ export class AuthController {
         const id = Number(req.params.id)
         return this.userService.updateUser(id, body)
     }
+
+    @UseGuards(JwtAuthGuard)
+    @Put("/actualizar-perfil")
+    async updatePerfil(@Body() body: any, @Request() req) {
+        const user = req.user;
+        return this.userService.updateUserProfile(Number(user.userId), body)
+    }
+
+
     @Get('/usuarios/:page/:pageSize')
     async getAllUsers(@Request() req) {
 
