@@ -147,5 +147,21 @@ export class CasosEstudioService {
         }
     }
 
+    async updateStateCasoEstudio(id: bigint, body: any) {
+        try {
+            const updatedcaso = await this.prisma.casos_de_estudio.update({
+                where: { id_casoEstudio: id },
+                data: {
+                    estado: body.estado,
+                    updated_at: new Date(),
+                }
+            });
+            const { created_at, updated_at, ...result } = updatedcaso;
+            return result;
+        } catch (error) {
+            throw new Error(`Error updating caso state: ${error.message}`);
+        }
+    }
+
 
 }

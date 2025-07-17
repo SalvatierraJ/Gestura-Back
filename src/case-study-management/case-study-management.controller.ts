@@ -147,4 +147,11 @@ export class CaseStudyManagementController {
     }
 
 
+     @Put('/actualizar-estado-caso/:id')
+    async updateEstadoCaso(@Request() req, @Body() body: any) {
+        const id = BigInt(req.params.id);
+        return this.CasosEstudioService.updateStateCasoEstudio(id, body);
+    }
+
+
 }
