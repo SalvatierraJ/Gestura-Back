@@ -1,3 +1,4 @@
+import { JwtService } from '@nestjs/jwt';
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
@@ -5,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 @Injectable()
 export class UserService {
 
-    constructor(private prisma: PrismaService) { }
+    constructor(private prisma: PrismaService, private jwtService: JwtService) { }
 
     async createUser(body: any) {
         const { Persona, Id_Rol, ...userData } = body;
@@ -120,7 +121,7 @@ export class UserService {
                 );
 
             const {
-                Password, Id_Persona, Id_Usuario, created_at, Usuario_Rol, updated_at, ...restUser
+                Password, Id_Persona, created_at, Usuario_Rol, updated_at, ...restUser
             } = user;
 
             return {
@@ -197,33 +198,43 @@ export class UserService {
             const usuarioActual = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: idUsuario },
             });
-    
+
             if (!usuarioActual) {
                 throw new NotFoundException(`Usuario con ID ${idUsuario} no encontrado.`);
             }
-    
+
             if (Persona && Object.keys(Persona).length > 0) {
                 await this.prisma.persona.update({
                     where: { Id_Persona: usuarioActual.Id_Persona },
-                    data: Persona, 
+                    data: {
+                        ...Persona,
+                        updated_at: new Date(),
+                    },
                 });
             }
-    
+
             if (Password) {
                 const salt = await bcrypt.genSalt();
                 usuarioData.Password = await bcrypt.hash(Password, salt);
             }
-    
+
             if (Object.keys(usuarioData).length > 0) {
                 await this.prisma.usuario.update({
                     where: { Id_Usuario: idUsuario },
-                    data: usuarioData,
+                    data: {
+                        ...usuarioData,
+                        updated_at: new Date(),
+                    },
                 });
             }
-            
-       
-            return this.getUserById(BigInt(idUsuario));
-    
+            const updatedUser = await this.getUserById(BigInt(idUsuario));
+            const payload = { username: updatedUser?.Nombre_Usuario, sub: Number(updatedUser?.Id_Usuario) };
+            const access_token = this.jwtService.sign(payload);
+            return {
+                data: updatedUser,
+                access_token,
+            };
+
         } catch (error) {
             if (error instanceof NotFoundException) {
                 throw error;
@@ -234,6 +245,7 @@ export class UserService {
             throw new InternalServerErrorException('Error inesperado al actualizar el perfil.');
         }
     }
+
     async updateUser(idUsuario: number, body: any) {
         const { Id_Rol, ...userData } = body;
 
