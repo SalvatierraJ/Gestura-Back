@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, HttpException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
 
@@ -161,6 +161,167 @@ export class EstudianteService {
     }
   }
 
+  async createEstudiantesMasivos(body: any) {
+    try {
+      const estudiantes = body.estudiantes || [];
+      if (!Array.isArray(estudiantes) || estudiantes.length === 0) {
+        throw new HttpException('Debes enviar al menos un estudiante', 400);
+      }
+
+      // Buscar el rol "Estudiante"
+      const rolEstudiante = await this.prisma.rol.findFirst({
+        where: {
+          Nombre: {
+            mode: 'insensitive',
+            equals: 'estudiante',
+          },
+        },
+      });
+
+      if (!rolEstudiante) {
+        throw new HttpException(
+          'Rol "Estudiante" no encontrado en la base de datos',
+          400,
+        );
+      }
+
+      const carrerasUnicas = [
+        ...new Set(estudiantes.map((e) => e.carrera.trim())),
+      ];
+      const carrerasDb = await this.prisma.carrera.findMany({
+        where: { nombre_carrera: { in: carrerasUnicas } },
+      });
+
+      const carreraMap = {};
+      carrerasDb.forEach((c) => {
+        carreraMap[c.nombre_carrera.trim()] = c.id_carrera;
+      });
+
+      type Fallido = {
+        estudiante: any;
+        motivo: string;
+      };
+
+      type Exitoso = {
+        estudiante: any;
+        id: number | string;
+        mensaje: string;
+      };
+
+      const exitosos: Exitoso[] = [];
+      const fallidos: Fallido[] = [];
+
+      for (const estudiante of estudiantes) {
+        try {
+          // ✅ VERIFICAR DUPLICADOS (igual que en createEstudiantes)
+          const estudiantePorCI = await this.prisma.estudiante.findFirst({
+            where: {
+              Persona: { CI: String(estudiante.ci) },
+            },
+          });
+
+          if (estudiantePorCI) {
+            fallidos.push({
+              estudiante,
+              motivo: `Ya existe un estudiante con CI: ${estudiante.ci}`,
+            });
+            continue;
+          }
+
+          const estudiantePorCorreo = await this.prisma.persona.findFirst({
+            where: { Correo: estudiante.correo },
+          });
+
+          if (estudiantePorCorreo) {
+            fallidos.push({
+              estudiante,
+              motivo: `Ya existe una persona con correo: ${estudiante.correo}`,
+            });
+            continue;
+          }
+
+          const estudiantePorRegistro = await this.prisma.estudiante.findFirst({
+            where: { nroRegistro: String(estudiante.numeroregistro) },
+          });
+
+          if (estudiantePorRegistro) {
+            fallidos.push({
+              estudiante,
+              motivo: `Ya existe un estudiante con número de registro: ${estudiante.numeroregistro}`,
+            });
+            continue;
+          }
+
+          // Verificar carrera
+          const idCarrera = carreraMap[estudiante.carrera.trim()];
+          if (!idCarrera) {
+            fallidos.push({
+              estudiante,
+              motivo: `Carrera no encontrada: ${estudiante.carrera}`,
+            });
+            continue;
+          }
+
+          // Crear estudiante
+          const creado = await this.prisma.estudiante.create({
+            data: {
+              nroRegistro: String(estudiante.numeroregistro),
+              Persona: {
+                create: {
+                  Nombre: estudiante.nombre,
+                  Apellido1: estudiante.apellido1,
+                  Apellido2: estudiante.apellido2,
+                  Correo: estudiante.correo,
+                  telefono: Number(estudiante.telefono),
+                  CI: String(estudiante.ci),
+                  created_at: new Date(),
+                  updated_at: new Date(),
+                },
+              },
+              estudiante_Carrera: {
+                create: {
+                  Id_Carrera: idCarrera,
+                },
+              },
+              created_at: new Date(),
+              updated_at: new Date(),
+            },
+            include: { Persona: true },
+          });
+
+          // ✅ CREAR USUARIO AUTOMÁTICAMENTE
+          await this.crearUsuarioParaEstudiante(
+            creado.Persona!,
+            estudiante.numeroregistro,
+            rolEstudiante.id_Rol,
+          );
+
+          exitosos.push({
+            estudiante: estudiante,
+            id: Number(creado.id_estudiante),
+            mensaje: 'Estudiante y usuario creados correctamente',
+          });
+        } catch (err) {
+          fallidos.push({
+            estudiante,
+            motivo: `Error al guardar: ${err.message}`,
+          });
+        }
+      }
+
+      return {
+        exitosos,
+        fallidos,
+        resumen: `Guardados: ${exitosos.length}, Fallidos: ${fallidos.length}`,
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Error creando estudiantes: ${error.message}`,
+        400,
+      );
+    }
+  }
+
   private async crearUsuarioParaEstudiante(
     persona: any,
     numeroRegistro: string,
@@ -287,7 +448,7 @@ export class EstudianteService {
         };
       }
 
-      // 2. Buscar solo estudiantes de esas carreras (usando la tabla intermedia estudiante_Carrera)
+      // 2. Buscar solo estudiantes de esas carreras
       const total = await this.prisma.estudiante.count({
         where: {
           estudiante_Carrera: {

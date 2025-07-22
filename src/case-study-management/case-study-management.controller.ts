@@ -7,6 +7,7 @@ import { FacultadService } from 'src/facultad/facultad.service';
 import { CreateCarrera } from 'src/carrera/dto/create-carrera.dto';
 import { AreaService } from 'src/area/area.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { UpdateCasoEstudioDto } from 'src/casos-estudio/dto/update-caso-estudio.dto';
 
 @Controller('case-study-management')
 export class CaseStudyManagementController {
@@ -140,10 +141,26 @@ export class CaseStudyManagementController {
     @UseGuards(JwtAuthGuard)
     @Get('/casos-estudio/:page/:pageSize')
     async getAllCasosEstudio(@Request() req) {
-         const user = req.user;
+        const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.CasosEstudioService.getAllCasosEstudio({ page, pageSize,user: user.userId });
+        return this.CasosEstudioService.getAllCasosEstudio({ page, pageSize, user: user.userId });
+    }
+
+
+    @Put('/actualizar-estado-caso/:id')
+    async updateEstadoCaso(@Request() req, @Body() body: any) {
+        const id = BigInt(req.params.id);
+        return this.CasosEstudioService.updateStateCasoEstudio(id, body);
+    }
+
+    @Put("/casos/:id")
+    async updateCasoEstudio(
+        @Request() req,
+        @Body() dto: UpdateCasoEstudioDto
+    ) {
+        const id = Number(req.params.id);
+        return this.CasosEstudioService.updateCasoEstudio(id, dto);
     }
 
 

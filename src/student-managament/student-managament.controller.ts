@@ -13,7 +13,7 @@ export class StudentManagamentController {
         const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.estudianteService.getAllEstudiantes({ page, pageSize,user: user.userId  });
+        return this.estudianteService.getAllEstudiantes({ page, pageSize, user: user.userId });
     }
 
     @Post('/nuevo-estudiante')
@@ -34,6 +34,11 @@ export class StudentManagamentController {
             : [Number(body.estudianteIds)];
         return this.defensaService.generarDefensa(estudianteIds, body);
     }
+    @Post('/estudiantes-masivo')
+    async createMasiveSudents(@Body() body: any) {
+        return this.estudianteService.createEstudiantesMasivos(body);
+    }
+
 
 
 
