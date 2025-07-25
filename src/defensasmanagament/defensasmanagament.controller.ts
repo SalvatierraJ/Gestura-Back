@@ -14,7 +14,7 @@ export class DefensasmanagamentController {
     ) {
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        const tipoDefensa= String(req.params.tipoDefensa);
+        const tipoDefensa = String(req.params.tipoDefensa);
         const user = req.user;
         return this.defensaService.getAllDefensasDetalle({
             page: Number(page) || 1,
@@ -34,6 +34,16 @@ export class DefensasmanagamentController {
         return this.juradoService.getJuradosConSugerencia();
     }
 
+    @Post('/actualizar-jurados')
+    async actualizarJurados(@Body() body: { defensaId: number; juradoIds: number[] }) {
+        if (!body.defensaId || !body.juradoIds || !Array.isArray(body.juradoIds)) {
+            throw new Error("Debe enviar defensaId y un array de juradoIds");
+        }
+        return this.juradoService.actualizarJurados({
+            defensaId: body.defensaId,
+            juradoIds: body.juradoIds,
+        });
+    }
 
     @Post("/nota/:id_defensa")
     async setNota(@Param("id_defensa") id_defensa: number, @Body() body: { nota: number }) {
