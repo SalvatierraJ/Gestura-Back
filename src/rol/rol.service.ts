@@ -7,7 +7,7 @@ import { UpdateRolDto } from './dto/UpdateRolDto';
 export class RolService {
     constructor(private prisma: PrismaService) { }
     async crearRol(data: CreateRolDto) {
-        const { nombre, carreras, modulosPermisos, esTotal } = data;
+        const { nombre, modulosPermisos, esTotal } = data;
 
         // 1. Crear el rol
         const nuevoRol = await this.prisma.rol.create({
@@ -18,19 +18,6 @@ export class RolService {
 
         const rolId = nuevoRol.id_Rol;
 
-        // 2. Asignar carreras (solo si NO es Estudiante)
-        if (nombre.trim().toLowerCase() !== "estudiante" && carreras && carreras.length > 0) {
-            await Promise.all(
-                carreras.map(idCarrera =>
-                    this.prisma.rol_Carrera.create({
-                        data: {
-                            Id_rol: rolId,
-                            Id_carrera: idCarrera,
-                        },
-                    })
-                )
-            );
-        }
 
         // 3. Asignar permisos por módulos
         if (esTotal) {
@@ -92,23 +79,9 @@ export class RolService {
 
         // 3. Eliminar relaciones anteriores
         await Promise.all([
-            this.prisma.rol_Carrera.deleteMany({ where: { Id_rol: id } }),
             this.prisma.rol_Modulo_Permiso.deleteMany({ where: { Id_Rol: id } }),
         ]);
 
-        // 4. Insertar nuevas carreras (solo si el nombre NO es "estudiante")
-        if (nombre.trim().toLowerCase() !== "estudiante" && carreras && carreras.length > 0) {
-            await Promise.all(
-                carreras.map(idCarrera =>
-                    this.prisma.rol_Carrera.create({
-                        data: {
-                            Id_rol: id,
-                            Id_carrera: idCarrera,
-                        },
-                    })
-                )
-            );
-        }
 
         // 5. Asignar nuevos permisos
         if (esTotal) {
@@ -159,7 +132,6 @@ export class RolService {
         }
 
         await this.prisma.$transaction([
-            this.prisma.rol_Carrera.deleteMany({ where: { Id_rol: id } }),
             this.prisma.rol_Modulo_Permiso.deleteMany({ where: { Id_Rol: id } }),
             this.prisma.rol.delete({ where: { id_Rol: id } }),
         ]);
@@ -182,15 +154,7 @@ export class RolService {
             include: {
                 Usuario_Rol: {
                     include: {
-                        Rol: {
-                            include: {
-                                rol_Carrera: {
-                                    include: {
-                                        carrera: true,
-                                    },
-                                },
-                            },
-                        },
+                        Rol: true
                     },
                 },
             },
@@ -215,11 +179,6 @@ export class RolService {
                     id_Rol: { notIn: idsRolesUsuario },
                 },
                 include: {
-                    rol_Carrera: {
-                        include: {
-                            carrera: true,
-                        },
-                    },
                     rol_Modulo_Permiso: {
                         include: {
                             Modulos: true,
@@ -229,10 +188,6 @@ export class RolService {
                 },
             });
         } else {
-            const carrerasUsuario = usuario.Usuario_Rol
-                .flatMap(ur => ur.Rol?.rol_Carrera ?? [])
-                .map(rc => rc.Id_carrera)
-                .filter((id): id is bigint => id !== null);
 
             rolesDB = await this.prisma.rol.findMany({
                 where: {
@@ -240,11 +195,6 @@ export class RolService {
                     id_Rol: { notIn: idsRolesUsuario },
                 },
                 include: {
-                    rol_Carrera: {
-                        include: {
-                            carrera: true,
-                        },
-                    },
                     rol_Modulo_Permiso: {
                         include: {
                             Modulos: true,
@@ -261,13 +211,6 @@ export class RolService {
                     set1.size === set2.size && [...set1].every((x) => set2.has(x))
                 );
             };
-
-            rolesDB = rolesDB.filter((rol) =>
-                filtrarIguales(
-                    rol.rol_Carrera.map((rc) => rc.Id_carrera),
-                    carrerasUsuario
-                )
-            );
         }
 
         const total = rolesDB.length;
@@ -280,10 +223,6 @@ export class RolService {
             datos: paginados.map((rol) => ({
                 id: rol.id_Rol,
                 nombre: rol.Nombre,
-                carreras: rol.rol_Carrera.map((rc) => ({
-                    id: rc.Id_carrera,
-                    nombre:rc.carrera?.nombre_carrera || null,
-                })),
                 modulos: rol.rol_Modulo_Permiso.map((rmp) => ({
                     id: rmp.Modulos?.Id_Modulo,
                     nombre: rmp.Modulos?.Nombre,

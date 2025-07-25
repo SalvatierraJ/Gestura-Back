@@ -1,3 +1,4 @@
+import { usuario_Carrera } from './../../node_modules/.prisma/client/index.d';
 import { JwtService } from '@nestjs/jwt';
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
@@ -9,38 +10,67 @@ export class UserService {
     constructor(private prisma: PrismaService, private jwtService: JwtService) { }
 
     async createUser(body: any) {
-        const { Persona, Id_Rol, ...userData } = body;
+        const { Id_Rol, carreras = [], id_persona, Password, ...userData } = body;
         try {
-            const salts = await bcrypt.genSalt()
-            const hashedPassword = await bcrypt.hash(body.Password, salts)
+            let idPersonaToAssign = Number(id_persona) ? Number(id_persona) : null;
+            if (!idPersonaToAssign) {
+                const newPerson = await this.prisma.persona.create({
+                    data: {
+                        Nombre: "",
+                        Apellido1: "",
+                        Apellido2: "",
+                        Correo: "",
+                        CI: "",
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                    }
+                });
+                idPersonaToAssign = Number(newPerson.Id_Persona);
+            }
+
+            // 2. Crear el usuario con el id_persona asignado
+            const salt = await bcrypt.genSalt();
+            const hashedPassword = await bcrypt.hash(body.Password, salt);
 
             const newUser = await this.prisma.usuario.create({
                 data: {
                     ...userData,
+                    Id_Persona: idPersonaToAssign,
                     Password: hashedPassword,
                     created_at: new Date(),
                     updated_at: new Date(),
                 }
             });
-            if (Array.isArray(Id_Rol)) {
-                const rolesToCreate = Id_Rol.map((rolId: number) => ({
-                    Id_Usuario: newUser.Id_Usuario,
-                    Id_Rol: rolId,
-                }));
 
+            if (Array.isArray(Id_Rol) && Id_Rol.length > 0) {
+                const rolesToCreate = Id_Rol.map((rolId: string | number) => ({
+                    Id_Usuario: newUser.Id_Usuario,
+                    Id_Rol: Number(rolId),
+                }));
                 await this.prisma.usuario_Rol.createMany({
                     data: rolesToCreate,
                     skipDuplicates: true,
                 });
             }
+
+            if (Array.isArray(carreras) && carreras.length > 0) {
+                await this.prisma.usuario_Carrera.createMany({
+                    data: carreras.map((idCarrera: string | number) => ({
+                        Id_usuario: newUser.Id_Usuario,
+                        Id_carrera: Number(idCarrera),
+                    })),
+                    skipDuplicates: true,
+                });
+            }
+
             const { Password, ...result } = newUser;
             return result;
         } catch (error) {
-            if (error instanceof Error) {
-                throw new InternalServerErrorException(error.message);
-            }
+            throw new InternalServerErrorException(error.message);
         }
     }
+
+
 
     async findOneUser(username: string) {
         try {
@@ -70,13 +100,13 @@ export class UserService {
                                             Permisos: true
                                         }
                                     },
-                                    rol_Carrera: {
-                                        include: {
-                                            carrera: true
-                                        }
-                                    }
                                 }
                             }
+                        }
+                    },
+                    usuario_Carrera: {
+                        include: {
+                            carrera: true
                         }
                     }
                 }
@@ -88,7 +118,7 @@ export class UserService {
                 .map(({ Rol }) => ({
                     id_Rol: Rol!.id_Rol,
                     Nombre: Rol!.Nombre,
-                    carreras: (Rol!.rol_Carrera ?? []).map(rc => ({
+                    carreras: (user.usuario_Carrera ?? []).map(rc => ({
                         id_carrera: rc.carrera?.id_carrera,
                         nombre_carrera: rc.carrera?.nombre_carrera
                     })),
@@ -120,6 +150,7 @@ export class UserService {
                     a.modulos.reduce((acc, m) => acc + m.permisos.length, 0)
                 );
 
+
             const {
                 Password, Id_Persona, created_at, Usuario_Rol, updated_at, ...restUser
             } = user;
@@ -135,16 +166,12 @@ export class UserService {
     }
 
 
-    async findAllUsuariosConRoles({ page, pageSize }) {
+    async findAllUsuariosConRoles(page: any, pageSize: any, userId: any) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
 
-            const total = await this.prisma.usuario.count();
-
-            const usuarios = await this.prisma.usuario.findMany({
-                skip,
-                take,
+            const allUsers = await this.prisma.usuario.findMany({
                 include: {
                     Persona: {
                         select: {
@@ -164,21 +191,39 @@ export class UserService {
                             },
                         },
                     },
+                    usuario_Carrera: {
+                        include: {
+                            carrera: true
+                        }
+                    }
                 },
             });
 
-            const items = usuarios.map(user => ({
-                id: user.Id_Usuario,
-                username: user.Nombre_Usuario,
-                nombres: `${user.Persona?.Nombre ?? ''} ${user.Persona?.Apellido1 ?? ''} ${user.Persona?.Apellido2 ?? ''}`.trim(),
-                correo: user.Persona?.Correo ?? '',
-                roles: (user.Usuario_Rol || [])
-                    .map(ur => ({
-                        id: ur.Rol?.id_Rol,
-                        nombre: ur.Rol?.Nombre,
-                    }))
-                    .filter(role => role.id !== undefined),
-            }));
+            const filteredUsers = allUsers
+                .filter(user => user.Id_Usuario !== userId);
+
+            const total = filteredUsers.length;
+
+            const items = filteredUsers
+                .slice((page - 1) * pageSize, page * pageSize)
+                .map(user => ({
+                    id: user.Id_Usuario,
+                    username: user.Nombre_Usuario,
+                    nombres: `${user.Persona?.Nombre ?? ''} ${user.Persona?.Apellido1 ?? ''} ${user.Persona?.Apellido2 ?? ''}`.trim(),
+                    correo: user.Persona?.Correo ?? '',
+                    roles: (user.Usuario_Rol || [])
+                        .map(ur => ({
+                            id: ur.Rol?.id_Rol,
+                            nombre: ur.Rol?.Nombre,
+                        }))
+                        .filter(role => role.id !== undefined),
+                    carreras: (user.usuario_Carrera || [])
+                        .map(ur => ({
+                            id: ur.carrera?.id_carrera,
+                            nombre: ur.carrera?.nombre_carrera,
+                        }))
+                        .filter(role => role.id !== undefined),
+                }));
 
             return {
                 items,
@@ -187,10 +232,12 @@ export class UserService {
                 pageSize: Number(pageSize),
                 totalPages: Math.ceil(total / pageSize),
             };
+
         } catch (error) {
             throw new Error(`Error al obtener usuarios con roles: ${error.message}`);
         }
     }
+
 
     async updateUserProfile(idUsuario: number, body: any) {
         const { Persona, Password, ...usuarioData } = body;
@@ -247,7 +294,7 @@ export class UserService {
     }
 
     async updateUser(idUsuario: number, body: any) {
-        const { Id_Rol, ...userData } = body;
+        const { Id_Rol, carreras, ...userData } = body;
 
         try {
             if (body.Password) {
@@ -268,21 +315,42 @@ export class UserService {
             });
 
             const roles = Array.isArray(Id_Rol) ? Id_Rol : [Id_Rol];
-
-            const rolData = roles.map((idRol) => ({
-                Id_Usuario: idUsuario,
-                Id_Rol: idRol,
-            }));
-
             await this.prisma.usuario_Rol.createMany({
-                data: rolData,
+                data: roles.map((idRol) => ({
+                    Id_Usuario: idUsuario,
+                    Id_Rol: Number(idRol),
+                })),
             });
+
+            const rolEstudiante = await this.prisma.rol.findFirst({
+                where: { Nombre: { contains: "estudiante", mode: "insensitive" } },
+                select: { id_Rol: true },
+            });
+
+            const esEstudiante = rolEstudiante && roles.some(
+                (idRol) => String(idRol) === String(rolEstudiante.id_Rol)
+            );
+
+            await this.prisma.usuario_Carrera.deleteMany({
+                where: { Id_usuario: idUsuario },
+            });
+
+            if (!esEstudiante && Array.isArray(carreras) && carreras.length > 0) {
+                await this.prisma.usuario_Carrera.createMany({
+                    data: carreras.map((idCarrera) => ({
+                        Id_usuario: idUsuario,
+                        Id_carrera: Number(idCarrera),
+                    })),
+                    skipDuplicates: true,
+                });
+            }
 
             const updatedUser = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: idUsuario },
                 include: {
                     Persona: true,
                     Usuario_Rol: { include: { Rol: true } },
+                    usuario_Carrera: { include: { carrera: true } },
                 },
             });
 
@@ -295,6 +363,7 @@ export class UserService {
             throw new InternalServerErrorException(error.message);
         }
     }
+
 
 
 }

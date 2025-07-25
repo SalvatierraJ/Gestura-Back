@@ -24,6 +24,8 @@ import { RolModule } from './rol/rol.module';
 import { ControlaccesomanagamentModule } from './controlaccesomanagament/controlaccesomanagament.module';
 import { PermisosModule } from './permisos/permisos.module';
 import { ModulosModule } from './modulos/modulos.module';
+import { MateriaModule } from './materia/materia.module';
+import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
 
 @Module({
   imports: [
@@ -50,7 +52,9 @@ import { ModulosModule } from './modulos/modulos.module';
     RolModule,
     ControlaccesomanagamentModule,
     PermisosModule,
-    ModulosModule
+    ModulosModule,
+    MateriaModule,
+    RegistroMateriaModule
     
   ],
   controllers: [AppController],
