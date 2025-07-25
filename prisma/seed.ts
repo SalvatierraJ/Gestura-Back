@@ -115,27 +115,27 @@ async function main() {
 
 
     // 1. Busca el rol Admin
-    if (!adminRol) throw new Error('No existe el rol Admin');
+    // if (!adminRol) throw new Error('No existe el rol Admin');
 
-    // 2. Trae todas las carreras
-    const carreras = await prisma.carrera.findMany();
+    // // 2. Trae todas las carreras
+    // const carreras = await prisma.carrera.findMany();
 
-    // 3. Asigna todas las carreras al rol Admin (evita duplicados)
-    for (const carrera of carreras) {
-        await prisma.rol_Carrera.upsert({
-            where: {
-                Id_rol_Id_carrera: {
-                    Id_rol: adminRol.id_Rol,
-                    Id_carrera: carrera.id_carrera,
-                }
-            },
-            update: {},
-            create: {
-                Id_rol: adminRol.id_Rol,
-                Id_carrera: carrera.id_carrera,
-            }
-        });
-    }
+    // // 3. Asigna todas las carreras al rol Admin (evita duplicados)
+    // for (const carrera of carreras) {
+    //     await prisma.usuario_Carrera.upsert({
+    //         where: {
+    //             Id_rol_Id_carrera: {
+    //                 Id_rol: adminRol.id_Rol,
+    //                 Id_carrera: carrera.id_carrera,
+    //             }
+    //         },
+    //         update: {},
+    //         create: {
+    //             Id_rol: adminRol.id_Rol,
+    //             Id_carrera: carrera.id_carrera,
+    //         }
+    //     });
+    // }
 
     const personaAdmin = await prisma.persona.create({
         data: {

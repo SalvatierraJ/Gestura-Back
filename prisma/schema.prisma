@@ -52,7 +52,6 @@ model Rol {
   created_at         DateTime?            @db.Timestamp(6)
   updated_at         DateTime?            @db.Timestamp(6)
   Usuario_Rol        Usuario_Rol[]
-  rol_Carrera        rol_Carrera[]
   rol_Modulo_Permiso rol_Modulo_Permiso[]
 }
 
@@ -91,6 +90,7 @@ model Usuario {
   Usuario_Rol          Usuario_Rol[]
   defensa              defensa[]
   documentos_generados documentos_generados[]
+  usuario_Carrera      usuario_Carrera[]
 }
 
 model archivos_defensa {
@@ -137,7 +137,8 @@ model carrera {
   facultad           facultad?            @relation(fields: [id_facultad], references: [id_facultad], onDelete: NoAction, onUpdate: NoAction)
   carrera_Area       carrera_Area[]
   estudiante_Carrera estudiante_Carrera[]
-  rol_Carrera        rol_Carrera[]
+  materia_carrera    materia_carrera[]
+  usuario_Carrera    usuario_Carrera[]
 }
 
 model casos_de_estudio {
@@ -201,14 +202,18 @@ model estudiante {
 }
 
 model estudiantes_materia {
-  id_estudiante_materia BigInt      @id @default(autoincrement())
+  id_estudiante_materia BigInt           @id @default(autoincrement())
   id_materia            BigInt?
   id_estudiante         BigInt?
-  calificacion          Decimal?    @db.Decimal
-  created_at            DateTime?   @db.Timestamp(6)
-  updated_at            DateTime?   @db.Timestamp(6)
-  estudiante            estudiante? @relation(fields: [id_estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction)
-  materia               materia?    @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction)
+  calificacion          Decimal?         @db.Decimal
+  created_at            DateTime?        @db.Timestamp(6)
+  updated_at            DateTime?        @db.Timestamp(6)
+  estado                String?          @db.VarChar
+  Gestion               String?          @db.VarChar
+  id_horario_materia    BigInt?
+  horario_materia       horario_materia? @relation(fields: [id_horario_materia], references: [id_horario], onDelete: NoAction, onUpdate: NoAction, map: "estudiante_materia_id_horario_materia_fkey")
+  estudiante            estudiante?      @relation(fields: [id_estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction)
+  materia               materia?         @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model facultad {
@@ -220,25 +225,45 @@ model facultad {
 }
 
 model horario_materia {
-  id_horario       BigInt            @id @default(autoincrement())
-  horario_inicio   DateTime?         @db.Time(6)
-  horario_fin      DateTime?         @db.Time(6)
-  dias_semana      String?           @db.VarChar
-  id_materia       BigInt?
-  id_docente       BigInt?
-  created_at       DateTime?         @db.Timestamp(6)
-  updated_at       DateTime?         @db.Timestamp(6)
-  tribunal_Docente tribunal_Docente? @relation(fields: [id_docente], references: [id_tribunal], onDelete: NoAction, onUpdate: NoAction)
-  materia          materia?          @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction)
+  id_horario          BigInt                @id @default(autoincrement())
+  Modalidad           String?               @db.VarChar
+  id_materia          BigInt?
+  id_docente          BigInt?
+  created_at          DateTime?             @db.Timestamp(6)
+  updated_at          DateTime?             @db.Timestamp(6)
+  turno               String?               @db.VarChar
+  gestion             String?               @db.VarChar
+  modulo_inicio       Int?
+  grupo               String?               @db.VarChar
+  BiModular           Boolean?
+  inscritos           Int?
+  confirmados         Int?
+  estado              Boolean?
+  modulo_fin          Int?
+  horario             String?               @db.VarChar
+  estudiantes_materia estudiantes_materia[]
+  tribunal_Docente    tribunal_Docente?     @relation(fields: [id_docente], references: [id_tribunal], onDelete: NoAction, onUpdate: NoAction)
+  materia             materia?              @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model materia {
-  id_materia          BigInt                @id @default(autoincrement())
-  nombre              BigInt?
-  created_at          DateTime?             @db.Timestamp(6)
-  updated_at          DateTime?             @db.Timestamp(6)
-  estudiantes_materia estudiantes_materia[]
-  horario_materia     horario_materia[]
+  id_materia                                                                  BigInt                  @id @default(autoincrement())
+  created_at                                                                  DateTime?               @db.Timestamp(6)
+  updated_at                                                                  DateTime?               @db.Timestamp(6)
+  cod_materia                                                                 BigInt?                 @unique(map: "unique_cod_materia")
+  siglas_materia                                                              String?                 @db.VarChar
+  creditos                                                                    Int?
+  horas_totales                                                               Int?
+  id_tipo                                                                     BigInt?
+  nombre                                                                      String?                 @db.VarChar
+  equivalencias_materia_equivalencias_materia_id_materia_equivalenteTomateria equivalencias_materia[] @relation("equivalencias_materia_id_materia_equivalenteTomateria")
+  equivalencias_materia_equivalencias_materia_id_materia_OrigenTomateria      equivalencias_materia[] @relation("equivalencias_materia_id_materia_OrigenTomateria")
+  estudiantes_materia                                                         estudiantes_materia[]
+  horario_materia                                                             horario_materia[]
+  tipo_materia                                                                tipo_materia?           @relation(fields: [id_tipo], references: [id_tipo], onDelete: NoAction, onUpdate: NoAction, map: "id_tipoMateria")
+  materia_carrera                                                             materia_carrera[]
+  materia_preRequisito                                                        materia_preRequisito[]
+  materia_preRequisito_materia_preRequisito_id_materia_preRequisitoTomateria  materia_preRequisito[]  @relation("materia_preRequisito_id_materia_preRequisitoTomateria")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -343,12 +368,46 @@ model carrera_Area {
   carrera        carrera? @relation(fields: [Id_Carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "Id_Carrera")
 }
 
-model rol_Carrera {
-  Id_Rol_Carrera BigInt   @id @default(autoincrement())
-  Id_rol         BigInt?
-  Id_carrera     BigInt?
-  Rol            Rol?     @relation(fields: [Id_rol], references: [id_Rol], onDelete: NoAction, onUpdate: NoAction, map: "Id_Rol")
-  carrera        carrera? @relation(fields: [Id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "id_carrera")
+model materia_carrera {
+  id_materiaCarrera BigInt   @id @default(autoincrement())
+  id_materia        BigInt?
+  id_carrera        BigInt?
+  semestre          String?  @db.VarChar
+  numero_pensum     BigInt?
+  carrera           carrera? @relation(fields: [id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "id_carrera")
+  materia           materia? @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia")
+}
 
-  @@unique([Id_rol, Id_carrera], name: "Id_rol_Id_carrera")
+model materia_preRequisito {
+  id_materiaPrerequisito                                        BigInt   @id @default(autoincrement())
+  id_materia                                                    BigInt?
+  id_materia_preRequisito                                       BigInt?
+  total_materia                                                 Int?
+  materia                                                       materia? @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia")
+  materia_materia_preRequisito_id_materia_preRequisitoTomateria materia? @relation("materia_preRequisito_id_materia_preRequisitoTomateria", fields: [id_materia_preRequisito], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_preRequisito")
+}
+
+model tipo_materia {
+  id_tipo BigInt    @id @default(autoincrement())
+  nombre  String?   @db.VarChar
+  materia materia[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model equivalencias_materia {
+  id_equivalencia                                               BigInt  @id @default(autoincrement())
+  id_materia_Origen                                             BigInt  @default(autoincrement())
+  id_materia_equivalente                                        BigInt  @default(autoincrement())
+  materia_equivalencias_materia_id_materia_equivalenteTomateria materia @relation("equivalencias_materia_id_materia_equivalenteTomateria", fields: [id_materia_equivalente], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_equivalente")
+  materia_equivalencias_materia_id_materia_OrigenTomateria      materia @relation("equivalencias_materia_id_materia_OrigenTomateria", fields: [id_materia_Origen], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_origen")
+}
+
+model usuario_Carrera {
+  Id_usuario_carrera BigInt   @id(map: "rol_Carrera_pkey") @default(autoincrement())
+  Id_usuario         BigInt?
+  Id_carrera         BigInt?
+  carrera            carrera? @relation(fields: [Id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "id_carrera")
+  Usuario            Usuario? @relation(fields: [Id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction, map: "id_usaurioCarrera")
+
+  @@unique([Id_usuario, Id_carrera], map: "rol_Carrera_Id_rol_Id_carrera_key")
 }

@@ -33,19 +33,30 @@ export class AuthController {
         return this.userService.updateUserProfile(Number(user.userId), body)
     }
 
-
+    @UseGuards(JwtAuthGuard)
     @Get('/usuarios/:page/:pageSize')
     async getAllUsers(@Request() req) {
-
+        const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.userService.findAllUsuariosConRoles({ page, pageSize });
+        return this.userService.findAllUsuariosConRoles(page, pageSize, Number(user.userId));
     }
+
+    @Get('/search-people/:q')
+    async searchPeople(@Request() req) {
+        if (!req.params.q || req.params.q.length < 2) {
+            return [];
+        }
+        return this.personService.searchPeople(req.params.q);
+    }
+
+
     @UseGuards(LocalAuthGuard)
     @Post('/login')
     async login(@Request() req) {
         return this.authService.login(req.user);
     }
+
     @UseGuards(JwtAuthGuard)
     @Get('/profile')
     async getProfile(@Request() req) {

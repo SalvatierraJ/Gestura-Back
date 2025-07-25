@@ -1,3 +1,4 @@
+import { usuario_Carrera } from './../../node_modules/.prisma/client/index.d';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 
@@ -41,23 +42,14 @@ export class AreaService {
             const usuario = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: user },
                 include: {
-                    Usuario_Rol: {
-                        include: {
-                            Rol: {
-                                include: {
-                                    rol_Carrera: true,
-                                }
-                            }
-                        }
-                    }
+                    usuario_Carrera:true
                 }
             });
 
             if (!usuario) throw new Error("Usuario no encontrado");
 
             // 2. Extraer los IDs de carreras que administra
-            const carrerasIds = usuario.Usuario_Rol
-                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+            const carrerasIds = usuario.usuario_Carrera
                 .map(rc => rc.Id_carrera)
                 .filter((id): id is bigint => id !== null && id !== undefined);
 

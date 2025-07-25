@@ -136,19 +136,12 @@ export class DefensaService {
             const usuario = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: user },
                 include: {
-                    Usuario_Rol: {
-                        include: {
-                            Rol: {
-                                include: { rol_Carrera: true }
-                            }
-                        }
-                    }
+                    usuario_Carrera:true
                 }
             });
             if (!usuario) throw new Error("Usuario no encontrado");
 
-            const carrerasIds = usuario.Usuario_Rol
-                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+            const carrerasIds = usuario.usuario_Carrera
                 .map(rc => rc.Id_carrera)
                 .filter((id): id is bigint => id !== null && id !== undefined);
 
