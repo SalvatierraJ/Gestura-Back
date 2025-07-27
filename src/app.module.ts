@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthorizationModule } from './authorization/authorization.module';
-import {ConfigModule} from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { PrismaService } from './database/prisma.services';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
@@ -24,13 +24,22 @@ import { RolModule } from './rol/rol.module';
 import { ControlaccesomanagamentModule } from './controlaccesomanagament/controlaccesomanagament.module';
 import { PermisosModule } from './permisos/permisos.module';
 import { ModulosModule } from './modulos/modulos.module';
+import { NotificacionModule } from './notificacion/notificacion.module';
+import { BullModule } from '@nestjs/bull';
 
 @Module({
   imports: [
+    BullModule.forRoot({
+      redis: {
+        host: process.env.HOST_REDIS,
+        port: Number(process.env.PORT_REDIS),
+      },
+    }),
+    BullModule.registerQueue({name: "whatsappQueue"}),
     AuthorizationModule,
     ConfigModule.forRoot({
-      isGlobal: true, 
-      envFilePath: `.env`, 
+      isGlobal: true,
+      envFilePath: `.env`,
     }),
     AuthModule,
     UserModule,
@@ -50,10 +59,11 @@ import { ModulosModule } from './modulos/modulos.module';
     RolModule,
     ControlaccesomanagamentModule,
     PermisosModule,
-    ModulosModule
-    
+    ModulosModule,
+    NotificacionModule
+
   ],
   controllers: [AppController],
-  providers: [AppService,PrismaService, CasosEstudioService],
+  providers: [AppService, PrismaService, CasosEstudioService],
 })
-export class AppModule {}
+export class AppModule { }

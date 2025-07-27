@@ -5,10 +5,12 @@ import { EstudianteService } from 'src/estudiante/estudiante.service';
 import { JwtStrategy } from 'src/auth/strategy/jwt.strategy';
 import { PrismaService } from 'src/database/prisma.services';
 import { DefensaService } from 'src/defensa/defensa.service';
+import { NotificacionModule } from 'src/notificacion/notificacion.module';
 
 @Module({
+  imports: [NotificacionModule],
   providers: [StudentManagamentService, EstudianteService, JwtStrategy,
-    PrismaService,DefensaService],
+    PrismaService, DefensaService],
   controllers: [StudentManagamentController]
 })
 export class StudentManagamentModule { }
