@@ -1,3 +1,2 @@
-2025/07/28-11:47:33.526 6734 Reusing MANIFEST C:\Users\Javi\Desktop\gestura-bakend\.wwebjs_auth\session-whatsapp-main\Default\Session Storage/MANIFEST-000001
-2025/07/28-11:47:33.526 6734 Recovering log #3
-2025/07/28-11:47:33.527 6734 Reusing old log C:\Users\Javi\Desktop\gestura-bakend\.wwebjs_auth\session-whatsapp-main\Default\Session Storage/000003.log 
+2025/07/28-11:59:05.687 602c Creating DB C:\Users\Javi\Desktop\gestura-bakend\.wwebjs_auth\session-whatsapp-main\Default\Session Storage since it was missing.
+2025/07/28-11:59:05.696 602c Reusing MANIFEST C:\Users\Javi\Desktop\gestura-bakend\.wwebjs_auth\session-whatsapp-main\Default\Session Storage/MANIFEST-000001
