@@ -34,7 +34,7 @@ export class StudentManagamentController {
             : [Number(body.estudianteIds)];
         return this.defensaService.generarDefensa(estudianteIds, body);
     }
-    @Post('/estudiantes-masivo')
+    @Post('/estudiantes-masivo')        
     async createMasiveSudents(@Body() body: any) {
         return this.estudianteService.createEstudiantesMasivos(body);
     }

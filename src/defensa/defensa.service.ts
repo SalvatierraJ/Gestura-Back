@@ -1,9 +1,13 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
+import { NotificacionService } from 'src/notificacion/notificacion.service';
 
 @Injectable()
 export class DefensaService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private notificacionService: NotificacionService
+    ) { }
 
     async generarDefensa(estudiantes: number[] | number, body: any) {
         console.log("IDs recibidos para sortear defensa:", estudiantes);
@@ -123,6 +127,28 @@ export class DefensaService {
                 fecha: defensa.fecha_defensa,
                 estado: defensa.estado,
                 tipo_defensa: tipoDefensa
+            });
+
+            // Enviar notificación por WhatsApp (sin bloquear)
+            this.enviarNotificacionDefensa(Number(idEstudiante), {
+                area: areaNombre,
+                caso: casoNombre,
+                fecha: defensa.fecha_defensa,
+                tipo_defensa: tipoDefensa,
+                estado: defensa.estado
+            }).catch(error => {
+                console.error(`Error al procesar notificación WhatsApp para estudiante ${idEstudiante}:`, error);
+            });
+
+            // Enviar notificación por Email (sin bloquear)
+            this.enviarNotificacionEmailDefensa(Number(idEstudiante), {
+                area: areaNombre,
+                caso: casoNombre,
+                fecha: defensa.fecha_defensa,
+                tipo_defensa: tipoDefensa,
+                estado: defensa.estado
+            }).catch(error => {
+                console.error(`Error al procesar notificación Email para estudiante ${idEstudiante}:`, error);
             });
         }
         return defensasCreadas;
@@ -292,6 +318,16 @@ export class DefensaService {
             }
         });
 
+        // Enviar notificación de calificación por WhatsApp (sin bloquear)
+        this.enviarNotificacionCalificacion(defensa, Number(nota), estado).catch(error => {
+            console.error(`Error al enviar notificación de calificación WhatsApp:`, error);
+        });
+
+        // Enviar notificación de calificación por Email (sin bloquear)
+        this.enviarNotificacionEmailCalificacion(defensa, Number(nota), estado).catch(error => {
+            console.error(`Error al enviar notificación de calificación Email:`, error);
+        });
+
         return defensaActualizada;
     }
     async agregarAulaDefensa(id_defensa: number, aula: string) {
@@ -311,6 +347,351 @@ export class DefensaService {
         return defensaActualizada;
     }
 
+    private async enviarNotificacionDefensa(idEstudiante: number, defensaInfo: any) {
+        try {
+            // Obtener información del estudiante y su teléfono
+            const estudiante = await this.prisma.estudiante.findUnique({
+                where: { id_estudiante: idEstudiante },
+                include: {
+                    Persona: true
+                }
+            });
+
+            if (!estudiante || !estudiante.Persona || !estudiante.Persona.telefono) {
+                console.log(`No se pudo enviar notificación: estudiante sin teléfono (ID: ${idEstudiante})`);
+                return;
+            }
+
+            const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
+            const telefono = estudiante.Persona.telefono.toString();
+            
+            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            let mensaje = `¡Hola ${nombreCompleto}! 👋\n\n`;
+            
+            if (defensaInfo.estado === 'ASIGNADO') {
+                mensaje += `✅ *Tu defensa ha sido programada exitosamente*\n\n`;
+                mensaje += `📅 *Fecha y hora:* ${fechaFormateada}\n`;
+                mensaje += `📚 *Tipo de defensa:* ${defensaInfo.tipo_defensa}\n`;
+                if (defensaInfo.area) {
+                    mensaje += `🎯 *Área asignada:* ${defensaInfo.area}\n`;
+                }
+                if (defensaInfo.caso) {
+                    mensaje += `📋 *Caso de estudio:* ${defensaInfo.caso}\n`;
+                }
+                mensaje += `\n¡Te deseamos mucho éxito en tu defensa! 🍀`;
+            } else if (defensaInfo.estado === 'PENDIENTE') {
+                mensaje += `⏳ *Tu defensa ha sido registrada*\n\n`;
+                mensaje += `📅 *Fecha y hora:* ${fechaFormateada}\n`;
+                mensaje += `📚 *Tipo de defensa:* ${defensaInfo.tipo_defensa}\n`;
+                mensaje += `\n⚠️ *Nota:* Aún faltan algunos detalles por asignar. Te notificaremos cuando esté todo listo.`;
+            }
+
+            // Enviar mensaje con timeout para evitar bloqueos largos
+            const envioExitoso = await Promise.race([
+                this.notificacionService.sendMessage(telefono, mensaje),
+                new Promise<boolean>((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
+                )
+            ]);
+
+            if (envioExitoso) {
+                console.log(`✅ Notificación enviada exitosamente al estudiante ${nombreCompleto} (${telefono})`);
+            } else {
+                console.log(`❌ No se pudo enviar la notificación al estudiante ${nombreCompleto} (${telefono})`);
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error al enviar notificación al estudiante ${idEstudiante}:`, error.message || error);
+            // Intentar registrar en base de datos para reenvío posterior (opcional)
+            // await this.registrarNotificacionFallida(idEstudiante, defensaInfo);
+        }
+    }
+
+    private async enviarNotificacionEmailDefensa(idEstudiante: number, defensaInfo: any) {
+        try {
+            // Obtener información del estudiante y su email
+            const estudiante = await this.prisma.estudiante.findUnique({
+                where: { id_estudiante: idEstudiante },
+                include: {
+                    Persona: true
+                }
+            });
+
+            if (!estudiante || !estudiante.Persona || !estudiante.Persona.Correo) {
+                console.log(`No se pudo enviar email: estudiante sin email (ID: ${idEstudiante})`);
+                return;
+            }
+
+            const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
+            const email = estudiante.Persona.Correo;
+            
+            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            let asunto = '';
+            let mensaje = '';
+            let templateData: any = {};
+
+            if (defensaInfo.estado === 'ASIGNADO') {
+                asunto = `✅ Defensa Programada - ${defensaInfo.tipo_defensa}`;
+                mensaje = `Tu defensa ha sido programada exitosamente para el ${fechaFormateada}.`;
+                
+                templateData = {
+                    title: '🎓 Defensa Programada Exitosamente',
+                    message: `
+                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
+                        
+                        <p>Te informamos que tu defensa ha sido programada con los siguientes detalles:</p>
+                        
+                        <ul>
+                            <li><strong>📅 Fecha y hora:</strong> ${fechaFormateada}</li>
+                            <li><strong>📚 Tipo de defensa:</strong> ${defensaInfo.tipo_defensa}</li>
+                            ${defensaInfo.area ? `<li><strong>🎯 Área asignada:</strong> ${defensaInfo.area}</li>` : ''}
+                            ${defensaInfo.caso ? `<li><strong>📋 Caso de estudio:</strong> ${defensaInfo.caso}</li>` : ''}
+                        </ul>
+                        
+                        <p><strong>Recomendaciones importantes:</strong></p>
+                        <ul>
+                            <li>Llega 15 minutos antes de la hora programada</li>
+                            <li>Revisa todo el material relacionado con tu área y caso de estudio</li>
+                            <li>Prepárate mental y académicamente para la defensa</li>
+                        </ul>
+                        
+                        <p>¡Te deseamos mucho éxito en tu defensa! 🍀</p>
+                        
+                        <p>Saludos cordiales,<br>
+                        <strong>Sistema Gestura - UTEPSA</strong></p>
+                    `
+                };
+            } else if (defensaInfo.estado === 'PENDIENTE') {
+                asunto = `⏳ Defensa Registrada - Pendiente de Asignación`;
+                mensaje = `Tu defensa ha sido registrada pero aún faltan algunos detalles por asignar.`;
+                
+                templateData = {
+                    title: '📝 Defensa Registrada - Pendiente',
+                    message: `
+                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
+                        
+                        <p>Te informamos que tu defensa ha sido registrada en el sistema:</p>
+                        
+                        <ul>
+                            <li><strong>📅 Fecha programada:</strong> ${fechaFormateada}</li>
+                            <li><strong>📚 Tipo de defensa:</strong> ${defensaInfo.tipo_defensa}</li>
+                            <li><strong>📊 Estado:</strong> Pendiente de asignación completa</li>
+                        </ul>
+                        
+                        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                            <p><strong>⚠️ Nota importante:</strong></p>
+                            <p>Aún faltan algunos detalles por asignar (área específica o caso de estudio). Te notificaremos por este mismo medio cuando todo esté completamente asignado.</p>
+                        </div>
+                        
+                        <p>Mantente atento a futuras comunicaciones.</p>
+                        
+                        <p>Saludos cordiales,<br>
+                        <strong>Sistema Gestura - UTEPSA</strong></p>
+                    `
+                };
+            }
+
+            // Enviar email con timeout para evitar bloqueos largos
+            const envioExitoso = await Promise.race([
+                this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
+                new Promise<boolean>((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout al enviar email')), 30000)
+                )
+            ]);
+
+            if (envioExitoso) {
+                console.log(`✅ Email enviado exitosamente al estudiante ${nombreCompleto} (${email})`);
+            } else {
+                console.log(`❌ No se pudo enviar el email al estudiante ${nombreCompleto} (${email})`);
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, error.message || error);
+        }
+    }
+
+    private async enviarNotificacionCalificacion(defensa: any, nota: number, estado: string) {
+        try {
+            if (!defensa.estudiante?.Persona?.telefono) {
+                console.log(`No se pudo enviar notificación de calificación: estudiante sin teléfono`);
+                return;
+            }
+
+            const nombreCompleto = `${defensa.estudiante.Persona.Nombre} ${defensa.estudiante.Persona.Apellido1} ${defensa.estudiante.Persona.Apellido2 || ''}`.trim();
+            const telefono = defensa.estudiante.Persona.telefono.toString();
+            
+            const fechaFormateada = new Date(defensa.fecha_defensa).toLocaleDateString('es-BO', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
+            let mensaje = `¡Hola ${nombreCompleto}! 👋\n\n`;
+            
+            if (estado === 'APROBADO') {
+                mensaje += `🎉 *¡FELICIDADES! Has APROBADO tu defensa* 🎉\n\n`;
+                mensaje += `✅ *Calificación obtenida:* ${nota}/100\n`;
+                mensaje += `📅 *Fecha de defensa:* ${fechaFormateada}\n`;
+                mensaje += `📚 *Tipo de defensa:* ${defensa.Tipo_Defensa?.Nombre || 'N/A'}\n`;
+                if (defensa.area?.nombre_area) {
+                    mensaje += `🎯 *Área:* ${defensa.area.nombre_area}\n`;
+                }
+                mensaje += `\n¡Excelente trabajo! Continúa con el siguiente paso en tu formación académica. 🚀`;
+            } else {
+                mensaje += `📋 *Resultado de tu defensa*\n\n`;
+                mensaje += `❌ *Estado:* No Aprobado\n`;
+                mensaje += `📊 *Calificación obtenida:* ${nota}/100\n`;
+                mensaje += `📅 *Fecha de defensa:* ${fechaFormateada}\n`;
+                mensaje += `📚 *Tipo de defensa:* ${defensa.Tipo_Defensa?.Nombre || 'N/A'}\n`;
+                mensaje += `\n💪 No te desanimes. Revisa los comentarios del tribunal y prepárate para una nueva oportunidad.`;
+            }
+
+            const envioExitoso = await Promise.race([
+                this.notificacionService.sendMessage(telefono, mensaje),
+                new Promise<boolean>((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
+                )
+            ]);
+
+            if (envioExitoso) {
+                console.log(`✅ Notificación de calificación enviada exitosamente por WhatsApp al estudiante ${nombreCompleto}`);
+            } else {
+                console.log(`❌ No se pudo enviar la notificación de calificación por WhatsApp al estudiante ${nombreCompleto}`);
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error al enviar notificación de calificación por WhatsApp:`, error.message || error);
+        }
+    }
+
+    private async enviarNotificacionEmailCalificacion(defensa: any, nota: number, estado: string) {
+        try {
+            if (!defensa.estudiante?.Persona?.Correo) {
+                console.log(`No se pudo enviar email de calificación: estudiante sin email`);
+                return;
+            }
+
+            const nombreCompleto = `${defensa.estudiante.Persona.Nombre} ${defensa.estudiante.Persona.Apellido1} ${defensa.estudiante.Persona.Apellido2 || ''}`.trim();
+            const email = defensa.estudiante.Persona.Correo;
+            
+            const fechaFormateada = new Date(defensa.fecha_defensa).toLocaleDateString('es-BO', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
+            let asunto = '';
+            let templateData: any = {};
+
+            if (estado === 'APROBADO') {
+                asunto = `🎉 ¡FELICIDADES! Defensa Aprobada - Calificación: ${nota}/100`;
+                
+                templateData = {
+                    title: '🎉 ¡DEFENSA APROBADA!',
+                    message: `
+                        <div style="text-align: center; background-color: #d4edda; border: 1px solid #c3e6cb; padding: 20px; border-radius: 5px; margin: 15px 0;">
+                            <h2 style="color: #155724; margin: 0;">¡FELICIDADES!</h2>
+                            <p style="color: #155724; font-size: 18px; margin: 10px 0;"><strong>Has APROBADO tu defensa</strong></p>
+                        </div>
+                        
+                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
+                        
+                        <p>Nos complace informarte que has aprobado exitosamente tu defensa con los siguientes detalles:</p>
+                        
+                        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 15px 0;">
+                            <ul style="list-style: none; padding: 0;">
+                                <li style="margin: 10px 0;"><strong>✅ Calificación obtenida:</strong> <span style="color: #28a745; font-size: 18px; font-weight: bold;">${nota}/100</span></li>
+                                <li style="margin: 10px 0;"><strong>📅 Fecha de defensa:</strong> ${fechaFormateada}</li>
+                                <li style="margin: 10px 0;"><strong>📚 Tipo de defensa:</strong> ${defensa.Tipo_Defensa?.Nombre || 'N/A'}</li>
+                                ${defensa.area?.nombre_area ? `<li style="margin: 10px 0;"><strong>🎯 Área:</strong> ${defensa.area.nombre_area}</li>` : ''}
+                                ${defensa.casos_de_estudio?.Nombre_Archivo ? `<li style="margin: 10px 0;"><strong>📋 Caso de estudio:</strong> ${defensa.casos_de_estudio.Nombre_Archivo}</li>` : ''}
+                            </ul>
+                        </div>
+                        
+                        <p><strong>¡Excelente trabajo!</strong> Tu dedicación y esfuerzo han dado frutos. Continúa con el siguiente paso en tu formación académica.</p>
+                        
+                        <p>Te deseamos mucho éxito en tus futuros proyectos académicos y profesionales. 🚀</p>
+                        
+                        <p>Saludos cordiales,<br>
+                        <strong>Sistema Gestura - UTEPSA</strong></p>
+                    `,
+                    buttonText: 'Ver Detalles en el Sistema',
+                    buttonUrl: '#' // Aquí puedes poner la URL del sistema
+                };
+            } else {
+                asunto = `📋 Resultado de Defensa - Calificación: ${nota}/100`;
+                
+                templateData = {
+                    title: '📋 Resultado de tu Defensa',
+                    message: `
+                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
+                        
+                        <p>Te informamos sobre el resultado de tu defensa:</p>
+                        
+                        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 15px 0;">
+                            <ul style="list-style: none; padding: 0;">
+                                <li style="margin: 10px 0;"><strong>📊 Calificación obtenida:</strong> <span style="color: #dc3545; font-size: 18px; font-weight: bold;">${nota}/100</span></li>
+                                <li style="margin: 10px 0;"><strong>❌ Estado:</strong> <span style="color: #dc3545;">No Aprobado</span></li>
+                                <li style="margin: 10px 0;"><strong>📅 Fecha de defensa:</strong> ${fechaFormateada}</li>
+                                <li style="margin: 10px 0;"><strong>📚 Tipo de defensa:</strong> ${defensa.Tipo_Defensa?.Nombre || 'N/A'}</li>
+                                ${defensa.area?.nombre_area ? `<li style="margin: 10px 0;"><strong>🎯 Área:</strong> ${defensa.area.nombre_area}</li>` : ''}
+                            </ul>
+                        </div>
+                        
+                        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                            <p><strong>💪 No te desanimes:</strong></p>
+                            <p>Esta experiencia es parte del proceso de aprendizaje. Te recomendamos:</p>
+                            <ul>
+                                <li>Revisar los comentarios y observaciones del tribunal</li>
+                                <li>Consultar con tus asesores académicos</li>
+                                <li>Prepararte adecuadamente para una nueva oportunidad</li>
+                                <li>Mantener una actitud positiva y perseverante</li>
+                            </ul>
+                        </div>
+                        
+                        <p>Recuerda que cada experiencia nos ayuda a crecer. ¡Tú puedes lograrlo!</p>
+                        
+                        <p>Saludos cordiales,<br>
+                        <strong>Sistema Gestura - UTEPSA</strong></p>
+                    `
+                };
+            }
+
+            const envioExitoso = await Promise.race([
+                this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
+                new Promise<boolean>((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout al enviar email')), 30000)
+                )
+            ]);
+
+            if (envioExitoso) {
+                console.log(`✅ Email de calificación enviado exitosamente al estudiante ${nombreCompleto} (${email})`);
+            } else {
+                console.log(`❌ No se pudo enviar el email de calificación al estudiante ${nombreCompleto} (${email})`);
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error al enviar email de calificación:`, error.message || error);
+        }
+    }
 
 
 
