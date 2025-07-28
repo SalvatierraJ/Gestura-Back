@@ -23,10 +23,8 @@ import { RolModule } from './rol/rol.module';
 import { ControlaccesomanagamentModule } from './controlaccesomanagament/controlaccesomanagament.module';
 import { PermisosModule } from './permisos/permisos.module';
 import { ModulosModule } from './modulos/modulos.module';
-import { NotificacionModule } from './notificacion/notificacion.module';
 import { MateriaModule } from './materia/materia.module';
 import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
-import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
 import { JwtModule } from '@nestjs/jwt';
 import { JWT_KEY } from '../constants/jwt-key';
 
