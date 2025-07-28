@@ -1,12 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-<<<<<<< HEAD
 import {ConfigModule} from '@nestjs/config';
-=======
-import { AuthorizationModule } from './authorization/authorization.module';
-import { ConfigModule } from '@nestjs/config';
->>>>>>> 2ed12dead3d5eed0317f8e600e5310fbcb1fe172
 import { PrismaService } from './database/prisma.services';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
