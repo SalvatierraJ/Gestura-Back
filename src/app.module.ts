@@ -1,7 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { AuthorizationModule } from './authorization/authorization.module';
 import {ConfigModule} from '@nestjs/config';
 import { PrismaService } from './database/prisma.services';
 import { AuthModule } from './auth/auth.module';
@@ -25,7 +24,6 @@ import { ControlaccesomanagamentModule } from './controlaccesomanagament/control
 import { PermisosModule } from './permisos/permisos.module';
 import { ModulosModule } from './modulos/modulos.module';
 import { NotificacionModule } from './notificacion/notificacion.module';
-import { BullModule } from '@nestjs/bull';
 import { MateriaModule } from './materia/materia.module';
 import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
 import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
@@ -34,7 +32,6 @@ import { JWT_KEY } from '../constants/jwt-key';
 
 @Module({
   imports: [
-    AuthorizationModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env`,
