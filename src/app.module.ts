@@ -27,6 +27,8 @@ import { ModulosModule } from './modulos/modulos.module';
 import { MateriaModule } from './materia/materia.module';
 import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
 import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
+import { JwtModule } from '@nestjs/jwt';
+import { JWT_KEY } from '../constants/jwt-key';
 
 @Module({
   imports: [
@@ -34,6 +36,10 @@ import { ProfileCheckMiddleware } from './common/middleware/profile-check.middle
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env`,
+    }),
+    JwtModule.register({
+      secret: JWT_KEY,
+      signOptions: { expiresIn: '8hrs' },
     }),
     AuthModule,
     UserModule,
