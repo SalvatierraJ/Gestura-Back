@@ -3,6 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from "crypto";
+
 
 @Injectable()
 export class UserService {
@@ -364,6 +366,56 @@ export class UserService {
         }
     }
 
+    async findUserByEmail(email: string) {
+        return this.prisma.usuario.findFirst({
+            where: { Nombre_Usuario: email },
+            include: { Persona: true },
+        });
+    }
 
+    async findPersonaByEmail(email: string) {
+        return this.prisma.persona.findFirst({
+            where: { Correo: email },
+        });
+    }
+
+    async createOrGetOauthUser({ email, name }: { email: string; name?: string }) {
+        let user = await this.findUserByEmail(email);
+        if (user) return user;
+
+        let persona = await this.findPersonaByEmail(email);
+
+        if (!persona) {
+            persona = await this.prisma.persona.create({
+                data: {
+                    Nombre: name ?? "",
+                    Correo: email,
+                    Apellido1: "",
+                    Apellido2: "",
+                    CI: "",
+                    created_at: new Date(),
+                    updated_at: new Date(),
+                }
+            });
+        }
+        const rol = await this.prisma.rol.findFirst({
+            where: { Nombre: { contains: "Visitante", mode: "insensitive" } },
+            select: { id_Rol: true },
+        });
+        const randomPassword = randomBytes(16).toString("hex");
+        const userData = {
+            Nombre_Usuario: email,
+            Password: randomPassword,
+            Id_Persona: Number(persona.Id_Persona),
+            created_at: new Date(),
+            updated_at: new Date(),
+            Usuario_Rol: {
+                create: {
+                    Id_Rol: rol?.id_Rol ?? null,
+                }}
+        };
+        user = await this.prisma.usuario.create({ data: userData, include: { Persona: true } });
+        return user;
+    }
 
 }

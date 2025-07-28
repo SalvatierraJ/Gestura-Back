@@ -1,8 +1,8 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthorizationModule } from './authorization/authorization.module';
-import { ConfigModule } from '@nestjs/config';
+import {ConfigModule} from '@nestjs/config';
 import { PrismaService } from './database/prisma.services';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
@@ -28,20 +28,20 @@ import { NotificacionModule } from './notificacion/notificacion.module';
 import { BullModule } from '@nestjs/bull';
 import { MateriaModule } from './materia/materia.module';
 import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
+import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
+import { JwtModule } from '@nestjs/jwt';
+import { JWT_KEY } from '../constants/jwt-key';
 
 @Module({
   imports: [
-    BullModule.forRoot({
-      redis: {
-        host: process.env.HOST_REDIS,
-        port: Number(process.env.PORT_REDIS),
-      },
-    }),
-    BullModule.registerQueue({name: "whatsappQueue"}),
     AuthorizationModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env`,
+    }),
+    JwtModule.register({
+      secret: JWT_KEY,
+      signOptions: { expiresIn: '8hrs' },
     }),
     AuthModule,
     UserModule,
@@ -63,11 +63,10 @@ import { RegistroMateriaModule } from './registro-materia/registro-materia.modul
     PermisosModule,
     ModulosModule,
     MateriaModule,
-    RegistroMateriaModule,
-    NotificacionModule,
+    RegistroMateriaModule
     
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService, CasosEstudioService],
 })
-export class AppModule { }
+export class AppModule {}
