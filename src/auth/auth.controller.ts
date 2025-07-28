@@ -5,6 +5,7 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PeopleService } from 'src/people/people.service';
+import { AuthorizationGuard } from './guards/authorization.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -56,6 +57,13 @@ export class AuthController {
     async login(@Request() req) {
         return this.authService.login(req.user);
     }
+
+    @UseGuards(AuthorizationGuard)
+    @Post('/login-oauth')
+    async loginOauth(@Body() body:any) {
+        return this.authService.loginOrRegisterOauthUser(body.id_token);
+    }
+
 
     @UseGuards(JwtAuthGuard)
     @Get('/profile')

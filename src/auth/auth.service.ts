@@ -6,6 +6,7 @@ import { userEntity } from './user';
 import { JwtService } from '@nestjs/jwt';
 import { PayloadEntity } from './peyload';
 import { LoginUserDto } from 'src/user/dto/login-user.dto';
+import * as jwt from "jsonwebtoken";
 
 @Injectable()
 export class AuthService {
@@ -31,11 +32,25 @@ export class AuthService {
     };
 
     async login(user: userEntity) {
-        const payload:PayloadEntity = { username: user.Nombre_Usuario, sub: Number(user.Id_Usuario) };
+        const payload: PayloadEntity = { username: user.Nombre_Usuario, sub: Number(user.Id_Usuario) };
         return {
             access_token: this.jwtService.sign(payload),
         };
     };
 
-    
+   async loginOrRegisterOauthUser(id_token: string) {
+    const decoded: any = jwt.decode(id_token);
+    const { email, name } = decoded;
+    if (!email) throw new Error("No se recibió correo desde Auth0");
+
+    const user = await this.userServices.createOrGetOauthUser({ email, name });
+
+    const payloadToken = { username: user.Nombre_Usuario, sub: Number(user.Id_Usuario) };
+    return {
+        access_token: this.jwtService.sign(payloadToken),
+        user,
+    };
+}
+
+
 }
