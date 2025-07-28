@@ -1,2 +1,3 @@
-2025/07/27-11:31:07.706 8290 Creating DB C:\laragon\www\Gestura-Back\.wwebjs_auth\session-whatsapp-main\Default\Local Storage\leveldb since it was missing.
-2025/07/27-11:31:07.721 8290 Reusing MANIFEST C:\laragon\www\Gestura-Back\.wwebjs_auth\session-whatsapp-main\Default\Local Storage\leveldb/MANIFEST-000001
+2025/07/28-11:47:33.014 37c4 Reusing MANIFEST C:\Users\Javi\Desktop\gestura-bakend\.wwebjs_auth\session-whatsapp-main\Default\Local Storage\leveldb/MANIFEST-000001
+2025/07/28-11:47:33.015 37c4 Recovering log #3
+2025/07/28-11:47:33.016 37c4 Reusing old log C:\Users\Javi\Desktop\gestura-bakend\.wwebjs_auth\session-whatsapp-main\Default\Local Storage\leveldb/000003.log 

@@ -1,7 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import {ConfigModule} from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { PrismaService } from './database/prisma.services';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
@@ -23,13 +23,27 @@ import { RolModule } from './rol/rol.module';
 import { ControlaccesomanagamentModule } from './controlaccesomanagament/controlaccesomanagament.module';
 import { PermisosModule } from './permisos/permisos.module';
 import { ModulosModule } from './modulos/modulos.module';
+import { NotificacionModule } from './notificacion/notificacion.module';
+import { BullModule } from '@nestjs/bull';
 import { MateriaModule } from './materia/materia.module';
 import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
+import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
 import { JwtModule } from '@nestjs/jwt';
 import { JWT_KEY } from '../constants/jwt-key';
 
 @Module({
   imports: [
+    BullModule.forRoot({
+      redis: {
+        host: process.env.HOST_REDIS,
+        port: Number(process.env.PORT_REDIS),
+      },
+    }),
+    BullModule.registerQueue({ name: "whatsappQueue" }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: `.env`,
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env`,
@@ -59,9 +73,9 @@ import { JWT_KEY } from '../constants/jwt-key';
     ModulosModule,
     MateriaModule,
     RegistroMateriaModule
-    
+
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService, CasosEstudioService],
 })
-export class AppModule {}
+export class AppModule { }
