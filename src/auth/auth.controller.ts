@@ -80,14 +80,14 @@ export class AuthController {
   }
 
   // Nuevos endpoints para verificar y completar perfil
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard,AuthorizationGuard)
   @Get('/verificar-perfil')
   async verificarPerfil(@Request() req) {
     const userId = req.user.userId;
     return this.authService.verificarPerfilCompleto(BigInt(userId));
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard,AuthorizationGuard)
   @Post('/completar-perfil')
   async completarPerfil(
     @Request() req,

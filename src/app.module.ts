@@ -66,6 +66,5 @@ import { JWT_KEY } from '../constants/jwt-key';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(ProfileCheckMiddleware).forRoutes('*'); // Aplicar a todas las rutas
   }
 }
