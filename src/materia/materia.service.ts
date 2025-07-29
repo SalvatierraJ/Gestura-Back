@@ -299,7 +299,12 @@ export class MateriaService {
                 gestion: string | null,
                 bimodular: boolean | null,
                 modulo_inicio: number | null,
-                modulo_fin: number | null
+                modulo_fin: number | null,
+                codigo_horario: bigint,
+                materia_origen: 'original' | 'equivalente',
+                nombre_materia: string | null,
+                siglas_materia: string | null,
+                codigo_materia: number
             }[]
         }
 
@@ -374,20 +379,22 @@ export class MateriaService {
                             });
 
                             const equivalentes: string[] = [];
+                            const idsEquivalentes: bigint[] = [];
+                            
                             for (const eq of equivalencias) {
-                                let idEquivalente: bigint | null = null;
+                                let idEquivalente: bigint;
                                 if (eq.id_materia_Origen === mat.id_materia) {
                                     idEquivalente = eq.id_materia_equivalente;
-                                } else if (eq.id_materia_equivalente === mat.id_materia) {
+                                } else {
                                     idEquivalente = eq.id_materia_Origen;
                                 }
-                                if (idEquivalente) {
-                                    const materiaEq = await this.prisma.materia.findUnique({
-                                        where: { id_materia: idEquivalente }
-                                    });
-                                    if (materiaEq && materiaEq.nombre !== mat.nombre) {
-                                        equivalentes.push(String(materiaEq.nombre));
-                                    }
+                                
+                                const materiaEq = await this.prisma.materia.findUnique({
+                                    where: { id_materia: idEquivalente }
+                                });
+                                if (materiaEq && materiaEq.nombre !== mat.nombre) {
+                                    equivalentes.push(String(materiaEq.nombre));
+                                    idsEquivalentes.push(idEquivalente);
                                 }
                             }
 
@@ -400,10 +407,6 @@ export class MateriaService {
                                 }))
                                 .filter(pr => pr.nombre || (pr.total_materia && pr.total_materia > 0))
 
-
-
-
-
                             // Revisar si la materia ya fue cursada (aprobada o no)
                             const cursadas = estudiante.estudiantes_materia.filter(
                                 em => em.id_materia === mat.id_materia
@@ -415,9 +418,19 @@ export class MateriaService {
                                 estado = 'aprobada';
                             }
 
+                            // Verificar si alguna materia equivalente fue aprobada
+                            const materiasEquivalentesAprobadas = estudiante.estudiantes_materia.filter(
+                                em => em.id_materia !== null && idsEquivalentes.includes(em.id_materia as bigint) && em.estado === 'aprobado'
+                            );
+                            
+                            // Si aprobó una materia equivalente, considerar esta materia como aprobada
+                            if (materiasEquivalentesAprobadas.length > 0 && estado !== 'aprobada') {
+                                estado = 'aprobada_por_equivalencia';
+                            }
+
                             // Puede cursar: si tiene todos los prerequisitos aprobados y NO la ha aprobado antes
                             let puedeCursar = false;
-                            if (estado === 'aprobada') {
+                            if (estado === 'aprobada' || estado === 'aprobada_por_equivalencia') {
                                 puedeCursar = false;
                             } else if (prereq.length === 0) {
                                 puedeCursar = true;
@@ -425,11 +438,18 @@ export class MateriaService {
                                 puedeCursar = true;
                                 for (const pr of prereq) {
                                     if (pr.total_materia && pr.total_materia > 0) {
-                                        // Materias aprobadas del estudiante
+                                        // Materias aprobadas del estudiante (incluyendo equivalentes)
                                         const materiasAprobadas = estudiante.estudiantes_materia.filter(
                                             em => em.estado === 'aprobado'
                                         );
-                                        if (materiasAprobadas.length < pr.total_materia) {
+                                        
+                                        // Contar también materias aprobadas por equivalencia
+                                        const materiasAprobadasPorEquivalencia = estudiante.estudiantes_materia.filter(
+                                            em => em.id_materia !== null && idsEquivalentes.includes(em.id_materia as bigint) && em.estado === 'aprobado'
+                                        );
+                                        
+                                        const totalMateriasAprobadas = materiasAprobadas.length + materiasAprobadasPorEquivalencia.length;
+                                        if (totalMateriasAprobadas < pr.total_materia) {
                                             puedeCursar = false;
                                             break;
                                         }
@@ -438,9 +458,43 @@ export class MateriaService {
                                         const matReq = await this.prisma.materia.findFirst({
                                             where: { nombre: { equals: pr.nombre, mode: 'insensitive' } }
                                         });
-                                        if (!matReq || !estudiante.estudiantes_materia.some(
-                                            em => em.id_materia === matReq.id_materia && em.estado === 'aprobado'
-                                        )) {
+                                        
+                                        if (matReq) {
+                                            // Verificar si aprobó la materia requerida directamente
+                                            const aproboMateriaRequerida = estudiante.estudiantes_materia.some(
+                                                em => em.id_materia === matReq.id_materia && em.estado === 'aprobado'
+                                            );
+                                            
+                                            // Verificar si aprobó una materia equivalente a la requerida
+                                            const equivalenciasMateriaRequerida = await this.prisma.equivalencias_materia.findMany({
+                                                where: {
+                                                    OR: [
+                                                        { id_materia_Origen: matReq.id_materia },
+                                                        { id_materia_equivalente: matReq.id_materia }
+                                                    ]
+                                                }
+                                            });
+                                            
+                                            const idsEquivMateriaRequerida: bigint[] = [];
+                                            for (const eqReq of equivalenciasMateriaRequerida) {
+                                                let idEquivReq: bigint;
+                                                if (eqReq.id_materia_Origen === matReq.id_materia) {
+                                                    idEquivReq = eqReq.id_materia_equivalente;
+                                                } else {
+                                                    idEquivReq = eqReq.id_materia_Origen;
+                                                }
+                                                idsEquivMateriaRequerida.push(idEquivReq);
+                                            }
+                                            
+                                            const aproboEquivalenteRequerida = estudiante.estudiantes_materia.some(
+                                                em => em.id_materia !== null && idsEquivMateriaRequerida.includes(em.id_materia as bigint) && em.estado === 'aprobado'
+                                            );
+                                            
+                                            if (!aproboMateriaRequerida && !aproboEquivalenteRequerida) {
+                                                puedeCursar = false;
+                                                break;
+                                            }
+                                        } else {
                                             puedeCursar = false;
                                             break;
                                         }
@@ -456,6 +510,59 @@ export class MateriaService {
                                 }
                             });
 
+                            // Buscar horarios de materias equivalentes
+                            const horariosEquivalentes = await this.prisma.horario_materia.findMany({
+                                where: {
+                                    id_materia: { in: idsEquivalentes },
+                                    estado: true
+                                },
+                                include: {
+                                    materia: {
+                                        select: {
+                                            nombre: true,
+                                            siglas_materia: true,
+                                            id_materia: true
+                                        }
+                                    }
+                                }
+                            });
+
+                            // Combinar horarios de la materia original y equivalentes
+                            const todosLosHorarios = [
+                                // Horarios de la materia original
+                                ...horariosAbiertos.map(h => ({
+                                    grupo: h.grupo,
+                                    turno: h.turno,
+                                    modalidad: h.Modalidad,
+                                    horario: h.horario,
+                                    gestion: h.gestion ?? null,
+                                    bimodular: h.BiModular ?? null,
+                                    modulo_inicio: h.modulo_inicio,
+                                    modulo_fin: h.modulo_fin,
+                                    codigo_horario: h.id_horario,
+                                    materia_origen: 'original' as const,
+                                    nombre_materia: mat.nombre,
+                                    siglas_materia: mat.siglas_materia,
+                                    codigo_materia: Number(mat.id_materia)
+                                })),
+                                // Horarios de materias equivalentes
+                                ...horariosEquivalentes.map(h => ({
+                                    grupo: h.grupo,
+                                    turno: h.turno,
+                                    modalidad: h.Modalidad,
+                                    horario: h.horario,
+                                    gestion: h.gestion ?? null,
+                                    bimodular: h.BiModular ?? null,
+                                    modulo_inicio: h.modulo_inicio,
+                                    modulo_fin: h.modulo_fin,
+                                    codigo_horario: h.id_horario,
+                                    materia_origen: 'equivalente' as const,
+                                    nombre_materia: h.materia?.nombre ?? null,
+                                    siglas_materia: h.materia?.siglas_materia ?? null,
+                                    codigo_materia: Number(h.materia?.id_materia ?? 0)
+                                }))
+                            ];
+
                             materiasInfo.push({
                                 nombre: mat.nombre,
                                 siglas: mat.siglas_materia,
@@ -466,17 +573,7 @@ export class MateriaService {
                                 puedeCursar,
                                 estado,
                                 vecesCursada,
-                                horariosAbiertos: horariosAbiertos.map(h => ({
-                                    grupo: h.grupo,
-                                    turno: h.turno,
-                                    modalidad: h.Modalidad,
-                                    horario: h.horario,
-                                    gestion: h.gestion ?? null,
-                                    bimodular: h.BiModular ?? null,
-                                    modulo_inicio: h.modulo_inicio,
-                                    modulo_fin: h.modulo_fin,
-                                    codigo_horario: h.id_horario
-                                }))
+                                horariosAbiertos: todosLosHorarios
                             });
                         }
                     }

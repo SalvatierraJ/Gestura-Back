@@ -14,59 +14,61 @@ export class UserService {
     async createUser(body: any) {
         const { Id_Rol, carreras = [], id_persona, Password, ...userData } = body;
         try {
-            let idPersonaToAssign = Number(id_persona) ? Number(id_persona) : null;
-            if (!idPersonaToAssign) {
-                const newPerson = await this.prisma.persona.create({
+            return await this.prisma.$transaction(async (tx) => {
+                let idPersonaToAssign = Number(id_persona) ? Number(id_persona) : null;
+                if (!idPersonaToAssign) {
+                    const newPerson = await tx.persona.create({
+                        data: {
+                            Nombre: "",
+                            Apellido1: "",
+                            Apellido2: "",
+                            Correo: "",
+                            CI: "",
+                            created_at: new Date(),
+                            updated_at: new Date(),
+                        }
+                    });
+                    idPersonaToAssign = Number(newPerson.Id_Persona);
+                }
+
+                // 2. Crear el usuario con el id_persona asignado
+                const salt = await bcrypt.genSalt();
+                const hashedPassword = await bcrypt.hash(body.Password, salt);
+
+                const newUser = await tx.usuario.create({
                     data: {
-                        Nombre: "",
-                        Apellido1: "",
-                        Apellido2: "",
-                        Correo: "",
-                        CI: "",
+                        ...userData,
+                        Id_Persona: idPersonaToAssign,
+                        Password: hashedPassword,
                         created_at: new Date(),
                         updated_at: new Date(),
                     }
                 });
-                idPersonaToAssign = Number(newPerson.Id_Persona);
-            }
 
-            // 2. Crear el usuario con el id_persona asignado
-            const salt = await bcrypt.genSalt();
-            const hashedPassword = await bcrypt.hash(body.Password, salt);
-
-            const newUser = await this.prisma.usuario.create({
-                data: {
-                    ...userData,
-                    Id_Persona: idPersonaToAssign,
-                    Password: hashedPassword,
-                    created_at: new Date(),
-                    updated_at: new Date(),
+                if (Array.isArray(Id_Rol) && Id_Rol.length > 0) {
+                    const rolesToCreate = Id_Rol.map((rolId: string | number) => ({
+                        Id_Usuario: newUser.Id_Usuario,
+                        Id_Rol: Number(rolId),
+                    }));
+                    await tx.usuario_Rol.createMany({
+                        data: rolesToCreate,
+                        skipDuplicates: true,
+                    });
                 }
+
+                if (Array.isArray(carreras) && carreras.length > 0) {
+                    await tx.usuario_Carrera.createMany({
+                        data: carreras.map((idCarrera: string | number) => ({
+                            Id_usuario: newUser.Id_Usuario,
+                            Id_carrera: Number(idCarrera),
+                        })),
+                        skipDuplicates: true,
+                    });
+                }
+
+                const { Password, ...result } = newUser;
+                return result;
             });
-
-            if (Array.isArray(Id_Rol) && Id_Rol.length > 0) {
-                const rolesToCreate = Id_Rol.map((rolId: string | number) => ({
-                    Id_Usuario: newUser.Id_Usuario,
-                    Id_Rol: Number(rolId),
-                }));
-                await this.prisma.usuario_Rol.createMany({
-                    data: rolesToCreate,
-                    skipDuplicates: true,
-                });
-            }
-
-            if (Array.isArray(carreras) && carreras.length > 0) {
-                await this.prisma.usuario_Carrera.createMany({
-                    data: carreras.map((idCarrera: string | number) => ({
-                        Id_usuario: newUser.Id_Usuario,
-                        Id_carrera: Number(idCarrera),
-                    })),
-                    skipDuplicates: true,
-                });
-            }
-
-            const { Password, ...result } = newUser;
-            return result;
         } catch (error) {
             throw new InternalServerErrorException(error.message);
         }
@@ -299,70 +301,76 @@ export class UserService {
         const { Id_Rol, carreras, ...userData } = body;
 
         try {
-            if (body.Password) {
-                const salt = await bcrypt.genSalt();
-                userData.Password = await bcrypt.hash(body.Password, salt);
-            }
+            return await this.prisma.$transaction(async (tx) => {
+                if (body.Password) {
+                    const salt = await bcrypt.genSalt();
+                    userData.Password = await bcrypt.hash(body.Password, salt);
+                }
 
-            await this.prisma.usuario.update({
-                where: { Id_Usuario: idUsuario },
-                data: {
-                    ...userData,
-                    updated_at: new Date(),
-                },
-            });
-
-            await this.prisma.usuario_Rol.deleteMany({
-                where: { Id_Usuario: idUsuario },
-            });
-
-            const roles = Array.isArray(Id_Rol) ? Id_Rol : [Id_Rol];
-            await this.prisma.usuario_Rol.createMany({
-                data: roles.map((idRol) => ({
-                    Id_Usuario: idUsuario,
-                    Id_Rol: Number(idRol),
-                })),
-            });
-
-            const rolEstudiante = await this.prisma.rol.findFirst({
-                where: { Nombre: { contains: "estudiante", mode: "insensitive" } },
-                select: { id_Rol: true },
-            });
-
-            const esEstudiante = rolEstudiante && roles.some(
-                (idRol) => String(idRol) === String(rolEstudiante.id_Rol)
-            );
-
-            await this.prisma.usuario_Carrera.deleteMany({
-                where: { Id_usuario: idUsuario },
-            });
-
-            if (!esEstudiante && Array.isArray(carreras) && carreras.length > 0) {
-                await this.prisma.usuario_Carrera.createMany({
-                    data: carreras.map((idCarrera) => ({
-                        Id_usuario: idUsuario,
-                        Id_carrera: Number(idCarrera),
-                    })),
-                    skipDuplicates: true,
+                await tx.usuario.update({
+                    where: { Id_Usuario: idUsuario },
+                    data: {
+                        ...userData,
+                        updated_at: new Date(),
+                    },
                 });
-            }
 
-            const updatedUser = await this.prisma.usuario.findUnique({
-                where: { Id_Usuario: idUsuario },
-                include: {
-                    Persona: true,
-                    Usuario_Rol: { include: { Rol: true } },
-                    usuario_Carrera: { include: { carrera: true } },
-                },
+                await tx.usuario_Rol.deleteMany({
+                    where: { Id_Usuario: idUsuario },
+                });
+
+                const roles = Array.isArray(Id_Rol) ? Id_Rol : [Id_Rol];
+                await tx.usuario_Rol.createMany({
+                    data: roles.map((idRol) => ({
+                        Id_Usuario: idUsuario,
+                        Id_Rol: Number(idRol),
+                    })),
+                });
+
+                const rolEstudiante = await tx.rol.findFirst({
+                    where: { Nombre: { contains: "estudiante", mode: "insensitive" } },
+                    select: { id_Rol: true },
+                });
+
+                const esEstudiante = rolEstudiante && roles.some(
+                    (idRol) => String(idRol) === String(rolEstudiante.id_Rol)
+                );
+
+                await tx.usuario_Carrera.deleteMany({
+                    where: { Id_usuario: idUsuario },
+                });
+
+                if (!esEstudiante && Array.isArray(carreras) && carreras.length > 0) {
+                    await tx.usuario_Carrera.createMany({
+                        data: carreras.map((idCarrera) => ({
+                            Id_usuario: idUsuario,
+                            Id_carrera: Number(idCarrera),
+                        })),
+                        skipDuplicates: true,
+                    });
+                }
+
+                const updatedUser = await tx.usuario.findUnique({
+                    where: { Id_Usuario: idUsuario },
+                    include: {
+                        Persona: true,
+                        Usuario_Rol: {
+                            include: {
+                                Rol: true
+                            }
+                        },
+                        usuario_Carrera: {
+                            include: {
+                                carrera: true
+                            }
+                        }
+                    }
+                });
+
+                return updatedUser;
             });
-
-            if (!updatedUser) {
-                throw new NotFoundException(`User with ID ${idUsuario} not found`);
-            }
-            const { Password, ...result } = updatedUser;
-            return result;
         } catch (error) {
-            throw new InternalServerErrorException(error.message);
+            throw new InternalServerErrorException('Error inesperado al actualizar el perfil.');
         }
     }
 

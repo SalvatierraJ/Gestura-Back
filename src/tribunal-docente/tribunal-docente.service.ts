@@ -117,51 +117,54 @@ export class TribunalDocenteService {
 
     async createTribunalDocente(body: any) {
         try {
-            console.log('Creating tribunal docente with body:', body.Persona);
-            const { Persona, ...rest } = body;
-            const tipoTribunal = await this.prisma.tipo_Tribunal.findFirst({
-                where: { Nombre: 'Interno' }
-            });
-            if (!tipoTribunal) {
-                throw new Error('Tipo de tribunal no encontrado');
-            }
-            const persona = await this.prisma.persona.create({
-                data: {
-                    Nombre: Persona.nombre,
-                    Apellido1: Persona.apellido1,
-                    Apellido2: Persona.apellido2,
-                    Correo: Persona.correo,
-                    CI: Persona.ci,
-                    telefono: Number(Persona.telefono),
-                    created_at: new Date(),
-                    updated_at: new Date(),
+            return await this.prisma.$transaction(async (tx) => {
+                console.log('Creating tribunal docente with body:', body.Persona);
+                const { Persona, ...rest } = body;
+                const tipoTribunal = await tx.tipo_Tribunal.findFirst({
+                    where: { Nombre: 'Interno' }
+                });
+                if (!tipoTribunal) {
+                    throw new Error('Tipo de tribunal no encontrado');
                 }
-            });
-            const newTribunal = await this.prisma.tribunal_Docente.create({
-                data: {
-                    id_Persona: persona.Id_Persona,
-                    Id_TipoTribunal: tipoTribunal.id_TipoTribunal,
-                    estado: true,
-                    created_at: new Date(),
-                    updated_at: new Date(),
+                
+                const persona = await tx.persona.create({
+                    data: {
+                        Nombre: Persona.nombre,
+                        Apellido1: Persona.apellido1,
+                        Apellido2: Persona.apellido2,
+                        Correo: Persona.correo,
+                        CI: Persona.ci,
+                        telefono: Number(Persona.telefono),
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                    }
+                });
+                
+                const newTribunal = await tx.tribunal_Docente.create({
+                    data: {
+                        id_Persona: persona.Id_Persona,
+                        Id_TipoTribunal: tipoTribunal.id_TipoTribunal,
+                        estado: true,
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                    }
+                });
+
+                if (body.area_especializacion && body.area_especializacion.length > 0) {
+                    for (const area of body.area_especializacion) {
+                        await tx.area_Tribunal.create({
+                            data: {
+                                id_area: Number(area),
+                                id_Tribunal: newTribunal.id_tribunal,
+                                created_at: new Date(),
+                                updated_at: new Date(),
+                            }
+                        });
+                    }
                 }
+
+                return newTribunal;
             });
-
-
-            if (body.area_especializacion && body.area_especializacion.length > 0) {
-                for (const area of body.area_especializacion) {
-                    await this.prisma.area_Tribunal.create({
-                        data: {
-                            id_area: Number(area),
-                            id_Tribunal: newTribunal.id_tribunal,
-                            created_at: new Date(),
-                            updated_at: new Date(),
-                        }
-                    });
-                }
-            }
-
-            return newTribunal;
         } catch (error) {
             throw new Error(`Error creating tribunal docente: ${error.message}`);
         }
