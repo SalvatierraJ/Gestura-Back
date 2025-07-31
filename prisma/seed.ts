@@ -58,6 +58,7 @@ async function main() {
             { Nombre: "Defensas Programadas" },
             { Nombre: "Control de Acceso" },
             { Nombre: "Mis Defensas" },
+            { Nombre: "Programar Materias" },
         ],
         skipDuplicates: true,
     });
@@ -77,6 +78,7 @@ async function main() {
         data: [
             { Nombre: "Admin" },
             { Nombre: "Estudiante" },
+            { Nombre: "Visitante" },
         ],
         skipDuplicates: true,
     });
@@ -114,28 +116,11 @@ async function main() {
 
 
 
-    // 1. Busca el rol Admin
-    // if (!adminRol) throw new Error('No existe el rol Admin');
 
-    // // 2. Trae todas las carreras
-    // const carreras = await prisma.carrera.findMany();
+    if (!adminRol) throw new Error('No existe el rol Admin');
 
-    // // 3. Asigna todas las carreras al rol Admin (evita duplicados)
-    // for (const carrera of carreras) {
-    //     await prisma.usuario_Carrera.upsert({
-    //         where: {
-    //             Id_rol_Id_carrera: {
-    //                 Id_rol: adminRol.id_Rol,
-    //                 Id_carrera: carrera.id_carrera,
-    //             }
-    //         },
-    //         update: {},
-    //         create: {
-    //             Id_rol: adminRol.id_Rol,
-    //             Id_carrera: carrera.id_carrera,
-    //         }
-    //     });
-    // }
+
+
 
     const personaAdmin = await prisma.persona.create({
         data: {
@@ -172,6 +157,52 @@ async function main() {
             Id_Rol: rolAdmin.id_Rol,
         }
     });
+
+
+
+    const carreras = await prisma.carrera.findMany();
+
+    for (const carrera of carreras) {
+        await prisma.usuario_Carrera.upsert({
+            where: {
+                Id_usuario_Id_carrera: {
+                    Id_usuario: usuarioAdmin.Id_Usuario,
+                    Id_carrera: carrera.id_carrera,
+                }
+            },
+            update: {},
+            create: {
+                Id_usuario: usuarioAdmin.Id_Usuario,
+                Id_carrera: carrera.id_carrera,
+            }
+        });
+    }
+
+
+    await prisma.tipo_Defensa.createMany({
+        data: [
+            {
+                Nombre: "Examen de grado Interna",
+                created_at: new Date(),
+                updated_at: new Date(),
+            },
+            {
+                Nombre: "Examen de grado Externa",
+                created_at: new Date(),
+                updated_at: new Date(),
+            },
+        ]
+    });
+
+
+    await prisma.tipo_Tribunal.create({
+        data: {
+            Nombre: "Interno",
+            created_at: new Date(),
+            updated_at: new Date(),
+        }
+    });
+
 
 }
 
