@@ -1,3 +1,4 @@
+import { usuario_Carrera } from './../../node_modules/.prisma/client/index.d';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 
@@ -8,26 +9,30 @@ export class AreaService {
 
     async createArea(body: any) {
         try {
-            const newArea = await this.prisma.area.create({
-                data: {
-                    nombre_area: body.nombre_area,
-                    estado: true,
-                    created_at: new Date(),
-                    updated_at: new Date(),
-                }
-            });
-            if (Array.isArray(body.carreraIds) && body.carreraIds.length > 0) {
-                const carreraAreaData = body.carreraIds.map((carreraId: number) => ({
-                    Id_Area: newArea.id_area,
-                    Id_Carrera: carreraId,
-                }));
-
-                await this.prisma.carrera_Area.createMany({
-                    data: carreraAreaData,
+            return await this.prisma.$transaction(async (tx) => {
+                const newArea = await tx.area.create({
+                    data: {
+                        nombre_area: body.nombre_area,
+                        estado: true,
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                    }
                 });
-            }
-            const { created_at, updated_at, ...result } = newArea;
-            return result;
+                
+                if (Array.isArray(body.carreraIds) && body.carreraIds.length > 0) {
+                    const carreraAreaData = body.carreraIds.map((carreraId: number) => ({
+                        Id_Area: newArea.id_area,
+                        Id_Carrera: carreraId,
+                    }));
+
+                    await tx.carrera_Area.createMany({
+                        data: carreraAreaData,
+                    });
+                }
+                
+                const { created_at, updated_at, ...result } = newArea;
+                return result;
+            });
         } catch (error) {
             throw new Error(`Error creating area: ${error.message}`);
         }
@@ -41,23 +46,14 @@ export class AreaService {
             const usuario = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: user },
                 include: {
-                    Usuario_Rol: {
-                        include: {
-                            Rol: {
-                                include: {
-                                    rol_Carrera: true,
-                                }
-                            }
-                        }
-                    }
+                    usuario_Carrera:true
                 }
             });
 
             if (!usuario) throw new Error("Usuario no encontrado");
 
             // 2. Extraer los IDs de carreras que administra
-            const carrerasIds = usuario.Usuario_Rol
-                .flatMap(ur => ur.Rol?.rol_Carrera || [])
+            const carrerasIds = usuario.usuario_Carrera
                 .map(rc => rc.Id_carrera)
                 .filter((id): id is bigint => id !== null && id !== undefined);
 
@@ -123,31 +119,33 @@ export class AreaService {
 
     async updateArea(id: bigint, body: any) {
         try {
-            const updatedArea = await this.prisma.area.update({
-                where: { id_area: id },
-                data: {
-                    nombre_area: body.nombre_area,
-                    updated_at: new Date(),
+            return await this.prisma.$transaction(async (tx) => {
+                const updatedArea = await tx.area.update({
+                    where: { id_area: id },
+                    data: {
+                        nombre_area: body.nombre_area,
+                        updated_at: new Date(),
+                    }
+                });
+
+                if (Array.isArray(body.carreraIds) && body.carreraIds.length > 0) {
+                    await tx.carrera_Area.deleteMany({
+                        where: { Id_Area: id },
+                    });
+
+                    const carreraAreaData = body.carreraIds.map((carreraId: number) => ({
+                        Id_Area: updatedArea.id_area,
+                        Id_Carrera: carreraId,
+                    }));
+
+                    await tx.carrera_Area.createMany({
+                        data: carreraAreaData,
+                    });
                 }
+
+                const { created_at, updated_at, ...result } = updatedArea;
+                return result;
             });
-
-            if (Array.isArray(body.carreraIds) && body.carreraIds.length > 0) {
-                await this.prisma.carrera_Area.deleteMany({
-                    where: { Id_Area: id },
-                });
-
-                const carreraAreaData = body.carreraIds.map((carreraId: number) => ({
-                    Id_Area: updatedArea.id_area,
-                    Id_Carrera: carreraId,
-                }));
-
-                await this.prisma.carrera_Area.createMany({
-                    data: carreraAreaData,
-                });
-            }
-
-            const { created_at, updated_at, ...result } = updatedArea;
-            return result;
         } catch (error) {
             throw new Error(`Error updating area: ${error.message}`);
         }
