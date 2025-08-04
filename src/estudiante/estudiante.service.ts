@@ -4,7 +4,7 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class EstudianteService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async createEstudiantes(body: any) {
     try {
@@ -417,77 +417,117 @@ export class EstudianteService {
       // 1. Obtener carreras que administra el usuario
       const usuario = await this.prisma.usuario.findUnique({
         where: { Id_Usuario: user },
-        include: {
-          usuario_Carrera:true
-        },
+        include: { usuario_Carrera: true }
       });
 
-      if (!usuario) throw new Error('Usuario no encontrado');
+      if (!usuario) throw new Error("Usuario no encontrado");
 
       const carrerasIds = usuario.usuario_Carrera
         .map((rc) => rc.Id_carrera)
-        .filter((id): id is bigint => id !== null && id !== undefined);
+        .filter((id): id is bigint => !!id);
 
-      if (carrerasIds.length === 0) {
-        return {
-          items: [],
-          total: 0,
-          page: Number(page),
-          pageSize: Number(pageSize),
-          totalPages: 0,
-        };
+      if (carrerasIds.length === 0) return { items: [], total: 0, page, pageSize, totalPages: 0 };
+
+      const requiredMaterias = await this.prisma.materia_carrera.findMany({
+        where: { id_carrera: { in: carrerasIds } },
+        select: { id_carrera: true, id_materia: true },
+      });
+
+      const materiasPorCarrera = new Map<bigint, Set<bigint>>();
+      for (const { id_carrera, id_materia } of requiredMaterias) {
+        if (!id_carrera || !id_materia) continue;
+        if (!materiasPorCarrera.has(id_carrera)) {
+          materiasPorCarrera.set(id_carrera, new Set());
+        }
+        materiasPorCarrera.get(id_carrera)!.add(id_materia);
       }
 
-      // 2. Buscar solo estudiantes de esas carreras
-      const total = await this.prisma.estudiante.count({
+      if (materiasPorCarrera.size === 0) {
+        return { items: [], total: 0, page, pageSize, totalPages: 0 };
+      }
+
+      const estudiantesAvanzados = await this.prisma.estudiante.findMany({
         where: {
           estudiante_Carrera: {
-            some: {
-              Id_Carrera: { in: carrerasIds },
-            },
+            some: { Id_Carrera: { in: carrerasIds } }
+          }
+        },
+        select: {
+          id_estudiante: true,
+          _count: {
+            select: {
+              estudiantes_materia: {
+                where: { estado: 'Aprobado' }
+              }
+            }
+          }
+        }
+      });
+
+      const idsAvanzados = estudiantesAvanzados
+        .filter(estudiante => estudiante._count.estudiantes_materia >= 35)
+        .map(estudiante => estudiante.id_estudiante);
+
+      if (idsAvanzados.length === 0) {
+        return { items: [], total: 0, page, pageSize, totalPages: 0 };
+      }
+      
+      // 3. Obtener todos los estudiantes relevantes con sus materias aprobadas
+      const potentialStudents = await this.prisma.estudiante.findMany({
+        where: {
+          id_estudiante: { in: idsAvanzados },
+          estudiante_Carrera: { some: { Id_Carrera: { in: carrerasIds } } },
+        },
+        select: {
+          id_estudiante: true,
+          estudiante_Carrera: { select: { Id_Carrera: true } },
+          estudiantes_materia: {
+            where: { estado: 'Aprobado' },
+            select: { id_materia: true },
           },
         },
       });
 
+      // 4. Procesar en memoria para encontrar los IDs de los estudiantes que completaron una carrera
+      const studentsWhoCompletedAllMaterias = potentialStudents
+        .filter(student => {
+          const studentApprovedMateriasIds = new Set(
+            student.estudiantes_materia.map(m => m.id_materia).filter((id): id is bigint => !!id)
+          );
+
+          return student.estudiante_Carrera.some(ec => {
+            const required = materiasPorCarrera.get(ec.Id_Carrera!);
+            if (!required || required.size === 0) return false;
+
+            return [...required].every(materiaId => studentApprovedMateriasIds.has(materiaId));
+          });
+        })
+        .map(student => student.id_estudiante);
+
+      const ids = [...new Set(studentsWhoCompletedAllMaterias)];
+
+      if (ids.length === 0) {
+        return { items: [], total: 0, page, pageSize, totalPages: 0 };
+      }
+
+      // 5. Total y paginación
+      const total = ids.length;
+      const pageIds = ids.slice(skip, skip + take);
+
+      // 6. Obtener datos detallados finales paginados
       const estudiantes = await this.prisma.estudiante.findMany({
-        where: {
-          estudiante_Carrera: {
-            some: {
-              Id_Carrera: { in: carrerasIds },
-            },
-          },
-        },
-        skip,
-        take,
+        where: { id_estudiante: { in: pageIds } },
         include: {
           Persona: true,
-          defensa: {
-            include: {
-              Tipo_Defensa: {
-                select: {
-                  Nombre: true,
-                },
-              },
-            },
-          },
-          estudiante_Carrera: {
-            include: {
-              carrera: {
-                select: {
-                  nombre_carrera: true,
-                },
-              },
-            },
-          },
+          defensa: { include: { Tipo_Defensa: { select: { Nombre: true } } } },
+          estudiante_Carrera: { include: { carrera: { select: { nombre_carrera: true } } } },
         },
       });
 
+      // 7. Formatear la respuesta
       const items = estudiantes.map((estudiante) => {
         const { Persona, defensa, estudiante_Carrera, ...rest } = estudiante;
-        const carreraNombre =
-          estudiante_Carrera && estudiante_Carrera.length > 0
-            ? estudiante_Carrera[0]?.carrera?.nombre_carrera || ''
-            : '';
+        const carreraNombre = estudiante_Carrera?.[0]?.carrera?.nombre_carrera || "";
 
         return {
           ...rest,

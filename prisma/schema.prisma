@@ -393,14 +393,14 @@
     materia materia[]
   }
 
-  /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-  model equivalencias_materia {
-    id_equivalencia                                               BigInt  @id @default(autoincrement())
-    id_materia_Origen                                             BigInt  @default(autoincrement())
-    id_materia_equivalente                                        BigInt  @default(autoincrement())
-    materia_equivalencias_materia_id_materia_equivalenteTomateria materia @relation("equivalencias_materia_id_materia_equivalenteTomateria", fields: [id_materia_equivalente], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_equivalente")
-    materia_equivalencias_materia_id_materia_OrigenTomateria      materia @relation("equivalencias_materia_id_materia_OrigenTomateria", fields: [id_materia_Origen], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_origen")
-  }
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model equivalencias_materia {
+  id_equivalencia                                               BigInt  @id @default(autoincrement())
+  id_materia_Origen                                             BigInt  
+  id_materia_equivalente                                        BigInt  
+  materia_equivalencias_materia_id_materia_equivalenteTomateria materia @relation("equivalencias_materia_id_materia_equivalenteTomateria", fields: [id_materia_equivalente], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_equivalente")
+  materia_equivalencias_materia_id_materia_OrigenTomateria      materia @relation("equivalencias_materia_id_materia_OrigenTomateria", fields: [id_materia_Origen], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_origen")
+}
 
   model usuario_Carrera {
     Id_usuario_carrera BigInt   @id(map: "rol_Carrera_pkey") @default(autoincrement())
