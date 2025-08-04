@@ -16,6 +16,17 @@ export class DocentesmanagementController {
         const pageSize = Number(req.params.pageSize);
         return this.TribunalDocenteService.getTribunalesDocentes({ page, pageSize,user: user.userId });
     }
+    //Filtrado docentes por palabra
+    @UseGuards(JwtAuthGuard)
+    @Get('/docentes/:page/:pageSize/:word')
+    async getFiltredDocentes(@Request() req) { 
+        const user = req.user;
+        const page = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const word = String(req.params.word);
+        return this.TribunalDocenteService.getTribunalesDocentesFiltred({page, pageSize, user: user.userId, word});
+    }
+
     @Post('/crear-docente')
     async createDocente(@Body() body: any) {
         return this.TribunalDocenteService.createTribunalDocente(body);

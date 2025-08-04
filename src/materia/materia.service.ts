@@ -1,9 +1,14 @@
-import { estudiante_Carrera, materia_preRequisito } from './../../node_modules/.prisma/client/index.d';
+import { estudiante_Carrera, materia_preRequisito, estudiantes_materia } from './../../node_modules/.prisma/client/index.d';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
 import dayjs from 'dayjs';
-
+interface EstudianteData {
+    registro: string | number;
+    estado: string;
+    turno_inscripcion: string;
+    turno_moda: string;
+}
 @Injectable()
 export class MateriaService {
     constructor(private prisma: PrismaService) { }
@@ -275,6 +280,7 @@ export class MateriaService {
             nombre: string | null,
             siglas: string | null,
             codigo: Number | null,
+            codigo_materia: bigint | null,
             semestre: string | null,
             equivalencias: (string | null)[],
             prerrequisitos: { nombre: string | null | undefined, sigla: string | null | undefined, total_materia: number | null | undefined }[],
@@ -584,6 +590,7 @@ export class MateriaService {
                             nombre: mat.nombre,
                             siglas: mat.siglas_materia,
                             codigo: Number(mat.id_materia),
+                            codigo_materia: mat.cod_materia,
                             semestre: mc.semestre,
                             equivalencias: equivalentes,
                             prerrequisitos: prereq,
@@ -1120,5 +1127,221 @@ export class MateriaService {
         }
         return { ok: true, message: "Equivalencias actualizadas" };
     }
+
+
+    async updateEstudianteByRegistro(data: EstudianteData) {
+        const nroRegistro = String(data.registro);
+
+        const estudiante = await this.prisma.estudiante.findFirst({
+            where: { nroRegistro },
+        });
+
+        if (!estudiante) {
+            return null;
+        }
+
+        return this.prisma.estudiante.update({
+            where: { id_estudiante: estudiante.id_estudiante },
+            data: {
+                estado: data.estado,
+                turno_inscripcion: data.turno_inscripcion,
+                turno_moda: data.turno_moda,
+                updated_at: new Date(),
+            },
+        });
+    }
+    async updateEstudiantesBatch(lista: EstudianteData[]) {
+        return Promise.all(
+            lista.map((est) => this.updateEstudianteByRegistro(est))
+        );
+    }
+
+    //para el chatbot posiblemente se elimine 
+    async avancePensum({ registro, nombre, numeroPensum }: { registro?: string; nombre?: string; numeroPensum: number }) {
+        // 1. Busca estudiante por registro o nombre (exacto o con LIKE, ajusta a tu necesidad)
+        const orConditions = [
+            registro ? { nroRegistro: { equals: registro } } : undefined,
+            nombre
+                ? {
+                    Persona: {
+                        Nombre: { contains: nombre, mode: 'insensitive' },
+                    },
+                }
+                : undefined,
+        ].filter(Boolean) as any[]; // Ensure no undefined values
+
+        const estudiante = await this.prisma.estudiante.findFirst({
+            where: {
+                OR: orConditions,
+            },
+            include: {
+                Persona: true,
+                estudiante_Carrera: { include: { carrera: true } },
+                estudiantes_materia: {
+                    include: { materia: true },
+                },
+            },
+        });
+
+        if (!estudiante) {
+            throw new Error('Estudiante no encontrado');
+        }
+
+        // 2. Buscar el pensum (materias) para la carrera y pensum dados
+        const materiasPensum = await this.prisma.materia_carrera.findMany({
+            where: {
+                id_carrera: estudiante.estudiante_Carrera[0]?.Id_Carrera,
+                numero_pensum: numeroPensum,
+            },
+            include: { materia: true },
+        });
+
+        // 3. Marcar materias cursadas/aprobadas/pending
+        const idsMateriasCursadas = new Set(
+            estudiante.estudiantes_materia.map((em) => em.id_materia),
+        );
+        const avance = materiasPensum.map((mc) => {
+            const cursada = estudiante.estudiantes_materia.find(
+                (em) => em.id_materia === mc.id_materia,
+            );
+            return {
+                materia: mc.materia?.nombre,
+                sigla: mc.materia?.siglas_materia,
+                estado: cursada?.estado || 'pendiente',
+            };
+        });
+
+        return {
+            estudiante: {
+                nombre: `${estudiante.Persona?.Nombre || ''} ${estudiante.Persona?.Apellido1 || ''} ${estudiante.Persona?.Apellido2 || ''}`,
+                registro: estudiante.nroRegistro,
+                carrera: estudiante.estudiante_Carrera[0]?.carrera?.nombre_carrera,
+                pensum: numeroPensum,
+                estado: estudiante.estado,
+            },
+            avance,
+        };
+    }
+
+
+    async recomendarHorariosMateriasFaltantes(nombreCarrera: string, numeroPensum: number) {
+        const carrera = await this.prisma.carrera.findFirst({
+            where: { nombre_carrera: nombreCarrera }
+        });
+        if (!carrera) throw new Error("Carrera no encontrada");
+
+        const materiasPensum = await this.prisma.materia_carrera.findMany({
+            where: {
+                id_carrera: carrera.id_carrera,
+                numero_pensum: numeroPensum
+            },
+            include: {
+                materia: {
+                    include: {
+                        materia_preRequisito: true 
+                    }
+                }
+            }
+        });
+        const estudiantesCarrera = await this.prisma.estudiante_Carrera.findMany({
+            where: { Id_Carrera: carrera.id_carrera },
+            include: { estudiante: { include: { estudiantes_materia: true } } }
+        });
+
+        const estudiantesCarreraRegulares = estudiantesCarrera.filter(ec =>
+            ec.estudiante && ec.estudiante.estado && ec.estudiante.estado.trim().toLowerCase() === 'regular'
+        );
+
+        type ResultadoMateriaHorario = {
+            materia: {
+                id: bigint | number | null;
+                nombre: string | null;
+                sigla: string | null;
+                semestre: string | null;
+            };
+            horarios: {
+                turno: string;
+                estudiantes: number;
+                grupos_sugeridos: number;
+                estudiantes_en_espera: number;
+            }[];
+        };
+        const resultado: ResultadoMateriaHorario[] = [];
+
+        for (const mp of materiasPensum) {
+            const idMateria = mp.id_materia;
+            const prerequisitos = mp.materia?.materia_preRequisito?.map(pr => pr.id_materia_preRequisito) || [];
+            const estudiantesQueLaNecesitan = estudiantesCarreraRegulares.filter(ec => {
+                if (!ec.estudiante) return false;
+                const cursada = ec.estudiante.estudiantes_materia.find(em => em.id_materia === idMateria);
+                if (cursada && cursada.estado === "aprobado") return false;
+                if (prerequisitos.length > 0) {
+                    const todosAprobados = prerequisitos.every(prId =>
+                        ec.estudiante && ec.estudiante.estudiantes_materia.find(em =>
+                            em.id_materia === prId && em.estado === "aprobado"
+                        )
+                    );
+                    return todosAprobados;
+                }
+                
+                return true;
+            });
+
+            const conteoHorarios: Record<string, Set<number>> = {};
+            estudiantesQueLaNecesitan.forEach(ec => {
+                const e = ec.estudiante;
+                if (e) {
+                    let turnoElegido: string | null = null;
+                    if (
+                        e.turno_moda &&
+                        e.turno_moda.toLowerCase() !== 'nada' &&
+                        e.turno_moda.toLowerCase() !== 'null' &&
+                        e.turno_moda.trim() !== ''
+                    ) {
+                        turnoElegido = e.turno_moda.trim();
+                    } else if (
+                        e.turno_inscripcion &&
+                        e.turno_inscripcion.toLowerCase() !== 'nada' &&
+                        e.turno_inscripcion.toLowerCase() !== 'null' &&
+                        e.turno_inscripcion.trim() !== ''
+                    ) {
+                        turnoElegido = e.turno_inscripcion.trim();
+                    }
+
+                    if (turnoElegido) {
+                        if (!conteoHorarios[turnoElegido]) conteoHorarios[turnoElegido] = new Set();
+                        conteoHorarios[turnoElegido].add(Number(e.id_estudiante));
+                    }
+                }
+            });
+
+            const horariosRanking = Object.entries(conteoHorarios)
+                .map(([turno, estudiantesSet]) => ({
+                    turno,
+                    estudiantes: estudiantesSet.size,
+                    grupos_sugeridos: Math.floor(estudiantesSet.size / 30),
+                    estudiantes_en_espera: estudiantesSet.size % 30
+                }))
+                .sort((a, b) => b.estudiantes - a.estudiantes);
+
+            if (mp.materia) {
+                resultado.push({
+                    materia: {
+                        id: mp.materia.id_materia,
+                        nombre: mp.materia.nombre,
+                        sigla: mp.materia.siglas_materia,
+                        semestre: mp.semestre
+                    },
+                    horarios: horariosRanking
+                });
+            }
+        }
+
+        return resultado;
+    }
+
+
+
+
 
 }

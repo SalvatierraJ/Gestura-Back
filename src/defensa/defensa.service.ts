@@ -305,7 +305,162 @@ export class DefensaService {
             throw new Error(`Error fetching defensas: ${error.message}`);
         }
     }
+     async getDefensasFiltradas({ page, pageSize, user, tipoDefensaNombre, word }: { page: number, pageSize: number, user: bigint, tipoDefensaNombre?: string, word?: string }) {
+        try {
+            const skip = (Number(page) - 1) * Number(pageSize);
+            const take = Number(pageSize);
 
+            // 1. Obtener las carreras que administra el usuario para delimitar la búsqueda
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: { usuario_Carrera: true }
+            });
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            const carrerasIds = usuario.usuario_Carrera
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            if (carrerasIds.length === 0) {
+                return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+            }
+
+            // A partir de las carreras, obtener los IDs de los estudiantes correspondientes
+            const estudiantesCarrera = await this.prisma.estudiante_Carrera.findMany({
+                where: { Id_Carrera: { in: carrerasIds } },
+                select: { Id_Estudiante: true }
+            });
+            const estudianteIds = [...new Set(estudiantesCarrera.map(ec => ec.Id_Estudiante).filter((id): id is bigint => !!id))];
+
+            if (estudianteIds.length === 0) {
+                return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+            }
+
+            // 2. Construir la cláusula 'where' de forma dinámica
+            const whereClause: any = { AND: [] };
+
+            // Condición base: La defensa debe pertenecer a uno de los estudiantes autorizados
+            whereClause.AND.push({ id_estudiante: { in: estudianteIds } });
+
+            // Condición opcional: Filtrar por tipo de defensa si se proporciona
+            if (tipoDefensaNombre) {
+                const tipo = await this.prisma.tipo_Defensa.findFirst({
+                    where: { Nombre: { equals: tipoDefensaNombre, mode: 'insensitive' } }
+                });
+                if (tipo) {
+                    whereClause.AND.push({ id_tipo_defensa: tipo.id_TipoDefensa });
+                } else {
+                    // Si se especifica un tipo y no se encuentra, no habrá resultados
+                    return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+                }
+            }
+            
+            // Condición opcional: Filtrar por palabra clave si se proporciona
+            if (word && word.trim() !== '') {
+                whereClause.AND.push({
+                    OR: [
+                        // Buscar en datos del estudiante
+                        { estudiante: { Persona: { Nombre: { contains: word, mode: 'insensitive' } } } },
+                        { estudiante: { Persona: { Apellido1: { contains: word, mode: 'insensitive' } } } },
+                        { estudiante: { Persona: { Apellido2: { contains: word, mode: 'insensitive' } } } },
+                        { estudiante: { Persona: { CI: { contains: word, mode: 'insensitive' } } } },
+                        // Buscar en datos de la defensa
+                        { estado: { contains: word, mode: 'insensitive' } },
+                        { aula: { contains: word, mode: 'insensitive' } },
+                        // Buscar en datos de relaciones
+                        { area: { nombre_area: { contains: word, mode: 'insensitive' } } },
+                        { casos_de_estudio: { Nombre_Archivo: { contains: word, mode: 'insensitive' } } },
+                        // Buscar por nombre de jurado (tribunal)
+                        {
+                            tribunal_defensa: {
+                                some: {
+                                    tribunal_Docente: {
+                                        Persona: {
+                                            OR: [
+                                                { Nombre: { contains: word, mode: 'insensitive' } },
+                                                { Apellido1: { contains: word, mode: 'insensitive' } },
+                                                { Apellido2: { contains: word, mode: 'insensitive' } },
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                });
+            }
+
+            // 3. Realizar consultas de conteo y obtención de datos con la misma cláusula
+            const total = await this.prisma.defensa.count({ where: whereClause });
+
+            const defensas = await this.prisma.defensa.findMany({
+                skip,
+                take,
+                where: whereClause,
+                include: {
+                    estudiante: { include: { Persona: true } },
+                    Tipo_Defensa: true,
+                    tribunal_defensa: {
+                        include: { tribunal_Docente: { include: { Persona: true } } }
+                    },
+                    area: true,
+                    casos_de_estudio: true,
+                },
+                orderBy: { fecha_defensa: "desc" }
+            });
+
+            // 4. Formatear los resultados para la respuesta final
+            const items = defensas.map((defensa) => {
+                const persona = defensa.estudiante?.Persona;
+                const estudianteNombre = persona ? `${persona.Nombre} ${persona.Apellido1} ${persona.Apellido2 || ""}`.trim() : null;
+
+                const jurados = (defensa.tribunal_defensa || [])
+                    .map(td => {
+                        const p = td.tribunal_Docente?.Persona;
+                        // **CORRECCIÓN AQUÍ**
+                        // Se comprueba que tanto el tribunal_Docente como su Persona existan antes de usarlos.
+                        if (!td.tribunal_Docente || !p) {
+                            return null;
+                        }
+                        return {
+                            id_tribunal: td.tribunal_Docente.id_tribunal,
+                            nombre: `${p.Nombre} ${p.Apellido1} ${p.Apellido2 || ""}`.trim(),
+                        };
+                    }).filter((j): j is { id_tribunal: bigint; nombre: string; } => j !== null);
+                
+                let fechaDefensa: string | null = null;
+                let horaDefensa: string | null = null;
+                if (defensa.fecha_defensa) {
+                    const d = new Date(defensa.fecha_defensa);
+                    fechaDefensa = d.toLocaleDateString("es-BO"); // Formato dd/mm/aaaa
+                    horaDefensa = d.toLocaleTimeString("es-BO", { hour: '2-digit', minute: '2-digit', hour12: true }).replace(/\./g, "").toUpperCase(); // Formato HH:MM AM/PM
+                }
+
+                return {
+                    ...defensa, // Devolvemos todos los campos de la defensa por si se necesitan
+                    estudiante: estudianteNombre,
+                    nombre_tipo_defensa: defensa.Tipo_Defensa?.Nombre || null,
+                    area: defensa.area?.nombre_area || null,
+                    caso: defensa.casos_de_estudio?.Nombre_Archivo || null,
+                    tiene_jurado: jurados.length > 0,
+                    jurados,
+                    fecha: fechaDefensa,
+                    hora: horaDefensa,
+                };
+            });
+
+            return {
+                items,
+                total,
+                page: Number(page),
+                pageSize: Number(pageSize),
+                totalPages: Math.ceil(total / pageSize)
+            };
+        } catch (error) {
+            console.error("Error en getDefensasFiltradas:", error);
+            throw new Error(`Error al obtener las defensas: ${error.message}`);
+        }
+    }
 
 
     async agregarNotaDefensa(id_defensa: number, nota: number) {

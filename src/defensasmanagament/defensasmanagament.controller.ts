@@ -24,6 +24,25 @@ export class DefensasmanagamentController {
         });
     }
 
+
+     @UseGuards(JwtAuthGuard)
+    @Get('/detalles/:page/:pageSize/:tipoDefensa/:word')
+    async getDefensasDetallePaginadoFiltred(
+        @Request() req?: any
+    ) {
+        const page = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const tipoDefensa = String(req.params.tipoDefensa);
+        const user = req.user;
+        const word = String(req.params?.word)
+        return this.defensaService.getDefensasFiltradas({
+            page: Number(page) || 1,
+            pageSize: Number(pageSize) || 10,
+            tipoDefensaNombre: tipoDefensa,
+            user: user.userId,
+            word
+        });
+    }
     @Post('/asignar-jurados-lote')
     async asignarJuradosLote(@Body() body: any) {
         return this.juradoService.asignarJurados(body);

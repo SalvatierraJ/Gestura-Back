@@ -22,7 +22,57 @@ export class CarreraService {
             throw new Error(`Error creating carrera: ${error.message}`);
         }
     }
+    async getCarrerasFiltred({page = 1, pageSize = 100, user, word}) { 
+        try{ 
+            const skip = (Number(page) - 1) * Number(pageSize);
+            const take = Number(pageSize);
+            const usuario = await this.prisma.usuario.findUnique({
+                where: {Id_Usuario: user},
+                include: {usuario_Carrera:true}
+            });
+            if (!usuario) throw new Error("No se encontro ningun usuuario");
 
+             const carrerasIds = usuario.usuario_Carrera
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+             if (carrerasIds.length === 0) {
+                return {
+                    items: [],
+                    total: 0,
+                    page: Number(page),
+                    pageSize: Number(pageSize),
+                    totalPages: 0
+                }; } 
+               
+                const total = await this.prisma.carrera.count({
+                where: { id_carrera: { in: carrerasIds }, nombre_carrera: {contains: word} }
+            });
+
+              const carreras = await this.prisma.carrera.findMany({
+                where: { id_carrera: { in: carrerasIds }, nombre_carrera: {contains: word} },
+                skip,
+                take,
+                include: { facultad: true }
+            });
+
+            const items = carreras.map(carrera => {
+                const { created_at, updated_at, id_facultad, facultad, ...result } = carrera;
+                const facu = facultad ? facultad.nombre_facultad : null;
+                return { ...result, facu };
+            });
+
+            return {
+                items,
+                total,
+                page: Number(page),
+                pageSize: Number(pageSize),
+                totalPages: Math.ceil(total / pageSize)
+            };
+        }
+        catch(error){ 
+            throw new Error(`Error fetching carreras: ${error.message}`);
+        }
+    }   
     async getAllCarreras({ page, pageSize, user }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);

@@ -115,8 +115,88 @@ export class AreaService {
             throw new Error(`Error fetching areas: ${error.message}`);
         }
     }
+async getFiltredAreas({ page, pageSize, user, word }) {
+    try {
+        const skip = (Number(page) - 1) * Number(pageSize);
+        const take = Number(pageSize);
 
+        // Pasos 1 y 2: Obtener los IDs de carreras y áreas permitidas para el usuario (sin cambios)
+        const usuario = await this.prisma.usuario.findUnique({
+            where: { Id_Usuario: user },
+            include: { usuario_Carrera: true }
+        });
 
+        if (!usuario) throw new Error("Usuario no encontrado");
+
+        const carrerasIds = usuario.usuario_Carrera
+            .map(rc => rc.Id_carrera)
+            .filter((id): id is bigint => id !== null && id !== undefined);
+
+        if (carrerasIds.length === 0) {
+            return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+        }
+
+        const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+            where: { Id_Carrera: { in: carrerasIds } },
+            select: { Id_Area: true }
+        });
+
+        const areaIds = [...new Set(areaCarreraLinks.map(link => link.Id_Area).filter((id): id is bigint => id !== null && id !== undefined))];
+
+        if (areaIds.length === 0) {
+            return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+        }
+
+        // --- INICIO DE LA MODIFICACIÓN ---
+
+        // 3. Construir la cláusula de filtro dinámicamente
+        const whereClause = {
+            id_area: { in: areaIds },
+            // Añadimos esta condición si 'word' tiene un valor
+            ...(word && {
+                nombre_area: {
+                    contains: word,
+                    mode: 'insensitive', // Búsqueda sin distinguir mayúsculas/minúsculas
+                },
+            }),
+        };
+
+        // 4. Usar la nueva cláusula para contar y buscar áreas
+        const total = await this.prisma.area.count({
+            where: whereClause,
+        });
+
+        const areas = await this.prisma.area.findMany({
+            where: whereClause,
+            skip,
+            take,
+            include: {
+                carrera_Area: { include: { carrera: true } }
+            }
+        });
+
+        // --- FIN DE LA MODIFICACIÓN ---
+
+        // El resto de la función para mapear los resultados no necesita cambios
+        const items = areas.map(area => {
+            const { created_at, updated_at, carrera_Area, ...result } = area;
+            const carreras = carrera_Area
+                .filter(ca => ca.carrera !== null)
+                .map(ca => ca.carrera!.nombre_carrera);
+            return { ...result, carreras };
+        });
+
+        return {
+            items,
+            total,
+            page: Number(page),
+            pageSize: Number(pageSize),
+            totalPages: Math.ceil(total / pageSize)
+        };
+    } catch (error) {
+        throw new Error(`Error fetching areas: ${error.message}`);
+    }
+}
     async updateArea(id: bigint, body: any) {
         try {
             return await this.prisma.$transaction(async (tx) => {

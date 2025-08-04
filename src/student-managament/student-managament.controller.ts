@@ -15,6 +15,15 @@ export class StudentManagamentController {
         const pageSize = Number(req.params.pageSize);
         return this.estudianteService.getAllEstudiantes({ page, pageSize, user: user.userId });
     }
+    //Filtrado de estudiantes por palabra
+    @Get('/estudiantes/:page/:pageSize/:word')
+    async filtredCarreras(@Request() req) {
+        const user = req.user;
+        const page = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const word = String(req.params.word);
+        return this.estudianteService.getAllEstudiantesFiltred({page, pageSize, user: user.userIdm, word});
+    }
 
     @Post('/nuevo-estudiante')
     async createCarrera(@Body() body: any) {
