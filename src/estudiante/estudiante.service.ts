@@ -518,4 +518,134 @@ export class EstudianteService {
       throw new Error(`Error fetching estudiantes: ${error.message}`);
     }
   }
+
+
+
+   async getAllEstudiantesFiltred({ page, pageSize, user, word }: { page: number, pageSize: number, user: bigint, word?: string }) {
+        try {
+            const skip = (Number(page) - 1) * Number(pageSize);
+            const take = Number(pageSize);
+
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    usuario_Carrera: true
+                },
+            });
+
+            if (!usuario) throw new Error('Usuario no encontrado');
+
+            const carrerasIds = usuario.usuario_Carrera
+                .map((rc) => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            if (carrerasIds.length === 0) {
+                return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+            }
+
+            const whereClause: any = {
+                AND: [
+                    {
+                        estudiante_Carrera: {
+                            some: {
+                                Id_Carrera: { in: carrerasIds },
+                            },
+                        },
+                    }
+                ]
+            };
+
+            if (word && word.trim() !== '') {
+                whereClause.AND.push({
+                    OR: [
+                        { Persona: { Nombre: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { Apellido1: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { Apellido2: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { CI: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { Correo: { contains: word, mode: 'insensitive' } } },
+                        { nroRegistro: { contains: word, mode: 'insensitive' } },
+                        {
+                            estudiante_Carrera: {
+                                some: {
+                                    carrera: {
+                                        nombre_carrera: {
+                                            contains: word,
+                                            mode: 'insensitive'
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                });
+            }
+
+            const total = await this.prisma.estudiante.count({
+                where: whereClause,
+            });
+
+            const estudiantes = await this.prisma.estudiante.findMany({
+                where: whereClause,
+                skip,
+                take,
+                include: {
+                    Persona: true,
+                    defensa: {
+                        include: {
+                            Tipo_Defensa: {
+                                select: {
+                                    Nombre: true,
+                                },
+                            },
+                        },
+                    },
+                    estudiante_Carrera: {
+                        include: {
+                            carrera: {
+                                select: {
+                                    nombre_carrera: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+
+            const items = estudiantes.map((estudiante) => {
+                const { Persona, defensa, estudiante_Carrera, ...rest } = estudiante;
+                const carreraNombre =
+                    estudiante_Carrera && estudiante_Carrera.length > 0
+                        ? estudiante_Carrera[0]?.carrera?.nombre_carrera || ''
+                        : '';
+
+                return {
+                    ...rest,
+                    nombre: Persona?.Nombre || '',
+                    apellido1: Persona?.Apellido1 || '',
+                    apellido2: Persona?.Apellido2 || '',
+                    correo: Persona?.Correo || '',
+                    telefono: Persona?.telefono || '',
+                    ci: Persona?.CI || '',
+                    carrera: carreraNombre,
+                    defensas: (defensa || []).map((d) => ({
+                        id_defensa: d.id_defensa,
+                        estado: d.estado,
+                        nombre_tipo_defensa: d.Tipo_Defensa?.Nombre || '',
+                        fecha_defensa: d.fecha_defensa,
+                    })),
+                };
+            });
+
+            return {
+                items,
+                total,
+                page: Number(page),
+                pageSize: Number(pageSize),
+                totalPages: Math.ceil(total / pageSize),
+            };
+        } catch (error) {
+            console.error("Error en getAllEstudiantesFiltred:", error);
+            throw new Error(`Error al obtener los estudiantes: ${error.message}`);
+        }
+    }
 }

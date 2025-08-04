@@ -32,6 +32,15 @@ export class CaseStudyManagementController {
         const pageSize = Number(req.params.pageSize);
         return this.carreraService.getAllCarreras({ page, pageSize, user: user.userId });
     }
+    @UseGuards(JwtAuthGuard)
+    @Get('/carreras/:page/:pageSize/:word')
+    async getCarrerasFilter(@Request() req) { 
+        const user = req.user;
+        const page  = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const word = String(req.params.word);
+        return this.carreraService.getCarrerasFiltred({page, pageSize, user:user.userId, word: word});
+    }
     @Post('/crear-carrera')
     async createCarrera(@Body() body: CreateCarrera) {
         return this.carreraService.createCarrera(body);
@@ -51,10 +60,21 @@ export class CaseStudyManagementController {
     @Get('/areas/:page/:pageSize')
     async getAllAreas(@Request() req) {
         const user = req.user;
-        const page = Number(req.params.page);
-        const pageSize = Number(req.params.pageSize);
+        const page = Number(req.params.page) || 1;
+        const pageSize = Number(req.params.pageSize) || 10;
         return this.areaService.getAllAreas({ page, pageSize, user: user.userId });
     }
+    @UseGuards(JwtAuthGuard)
+    @Get('/areas/:page/:pageSize/:word')
+    async getFiltredAreas(@Request() req) { 
+        const user = req.user;
+        const page = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const word = String(req.params.word);
+        return this.areaService.getFiltredAreas({page, pageSize, user:user.userId, word});
+
+    }
+
     @Post('/crear-area')
     async createArea(@Body() body: any) {
         return this.areaService.createArea(body);
@@ -145,6 +165,16 @@ export class CaseStudyManagementController {
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
         return this.CasosEstudioService.getAllCasosEstudio({ page, pageSize, user: user.userId });
+    }
+    @UseGuards(JwtAuthGuard)
+    @Get('/casos-estudio/:page/:pageSize/:word') 
+    async filtredCasosEstudio(@Request() req) { 
+        const user = req.user;
+        const page = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const word = String(req.params.word);
+
+        return this.CasosEstudioService.getfiltredCasosEstudio({page, pageSize, user: user.userId,  word});
     }
 
 
