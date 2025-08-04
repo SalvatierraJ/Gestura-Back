@@ -36,6 +36,117 @@ export class CasosEstudioService {
             throw new Error(`Error creating case study: ${error.message}`);
         }
     }
+async getfiltredCasosEstudio({ page, pageSize, user, word }) {
+    try {
+        const skip = (Number(page) - 1) * Number(pageSize);
+        const take = Number(pageSize);
+
+        // 1. Obtener carreras que administra el usuario
+        const usuario = await this.prisma.usuario.findUnique({
+            where: { Id_Usuario: user },
+            include: {
+                usuario_Carrera: true
+            }
+        });
+
+        if (!usuario) throw new Error("Usuario no encontrado");
+
+        const carrerasIds = usuario.usuario_Carrera
+            .map(rc => rc.Id_carrera)
+            .filter((id): id is bigint => id !== null && id !== undefined);
+
+        if (carrerasIds.length === 0) {
+            return {
+                items: [], total: 0, page: Number(page),
+                pageSize: Number(pageSize), totalPages: 0
+            };
+        }
+
+        // 2. Obtener las áreas relacionadas a esas carreras
+        const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+            where: { Id_Carrera: { in: carrerasIds } },
+            select: { Id_Area: true }
+        });
+
+        const areaIds = [
+            ...new Set(
+                areaCarreraLinks
+                    .map(link => link.Id_Area)
+                    .filter((id): id is bigint => id !== null && id !== undefined)
+            )
+        ];
+
+        if (areaIds.length === 0) {
+            return {
+                items: [], total: 0, page: Number(page),
+                pageSize: Number(pageSize), totalPages: 0
+            };
+        }
+
+        // --- INICIO DE LA MODIFICACIÓN ---
+
+        // 3. Construir la cláusula de filtro dinámicamente
+        const whereClause = {
+            id_area: { in: areaIds },
+            // Añadimos esta condición si 'word' tiene un valor
+            ...(word && {
+                Nombre_Archivo: {
+                    contains: word,
+                    mode: 'insensitive', // Para que la búsqueda no distinga mayúsculas/minúsculas
+                },
+            }),
+        };
+
+        // 4. Filtrar casos de estudio usando la nueva cláusula
+        const total = await this.prisma.casos_de_estudio.count({
+            where: whereClause // Usamos la cláusula aquí
+        });
+
+        const casosEstudio = await this.prisma.casos_de_estudio.findMany({
+            where: whereClause, // Y aquí también
+            skip,
+            take,
+            include: { area: true }
+        });
+        
+        // --- FIN DE LA MODIFICACIÓN ---
+
+        const metadatos = await this.prisma.metadatos.findMany({
+            where: {
+                modelo_Origen: "casos_de_estudio",
+                Id_Origen: { in: casosEstudio.map(caso => caso.id_casoEstudio) }
+            },
+            select: {
+                Id_Origen: true,
+                Titulo: true,
+                Autor: true,
+                Tema: true,
+                Fecha_Creacion: true
+            }
+        });
+
+        const items = casosEstudio.map(caso => {
+            const metadata = metadatos.find(meta => meta.Id_Origen === caso.id_casoEstudio);
+            if (!metadata) {
+                // Considera manejar este caso de forma más robusta si es posible que no exista metadata
+                return null; 
+            }
+            const { created_at, updated_at, area, ...result } = caso;
+            const areaName = area ? area.nombre_area : null;
+            return { ...result, areaName, ...metadata };
+        }).filter(Boolean); // Filtra los posibles nulos
+
+        return {
+            items,
+            total,
+            page: Number(page),
+            pageSize: Number(pageSize),
+            totalPages: Math.ceil(total / pageSize)
+        };
+    } catch (error) {
+        throw new Error(`Error fetching case studies: ${error.message}`);
+    }
+}
 
     async getAllCasosEstudio({ page, pageSize, user }) {
         try {

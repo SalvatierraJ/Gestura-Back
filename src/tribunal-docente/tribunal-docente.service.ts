@@ -115,6 +115,140 @@ export class TribunalDocenteService {
     }
 
 
+//Obtener informacion por palabras
+  async getTribunalesDocentesFiltred({ page, pageSize, user, word }: { page: number, pageSize: number, user: bigint, word?: string }) {
+        try {
+            const skip = (Number(page) - 1) * Number(pageSize);
+            const take = Number(pageSize);
+
+            // 1. Obtener carreras que administra el usuario
+            const usuario = await this.prisma.usuario.findUnique({
+                where: { Id_Usuario: user },
+                include: {
+                    usuario_Carrera: true
+                }
+            });
+
+            if (!usuario) throw new Error("Usuario no encontrado");
+
+            const carrerasIds = usuario.usuario_Carrera
+                .map(rc => rc.Id_carrera)
+                .filter((id): id is bigint => id !== null && id !== undefined);
+
+            if (carrerasIds.length === 0) {
+                return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+            }
+
+            // 2. Obtener las áreas relacionadas a esas carreras
+            const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+                where: { Id_Carrera: { in: carrerasIds } },
+                select: { Id_Area: true }
+            });
+
+            const areaIds = [
+                ...new Set(
+                    areaCarreraLinks
+                        .map(link => link.Id_Area)
+                        .filter((id): id is bigint => id !== null && id !== undefined)
+                )
+            ];
+
+            if (areaIds.length === 0) {
+                return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
+            }
+
+            // 3. Construir la cláusula 'where' para la consulta de Prisma
+            // Esta cláusula es dinámica y aplicará el filtro de búsqueda solo si se proporciona una 'word'.
+            const whereClause: any = {
+                AND: [
+                    // Condición base: El tribunal debe pertenecer a una de las áreas autorizadas para el usuario.
+                    {
+                        area_Tribunal: {
+                            some: { id_area: { in: areaIds } }
+                        }
+                    }
+                ]
+            };
+
+            // Si se proporciona una palabra de búsqueda (word), se añade la lógica de filtrado.
+            if (word && word.trim() !== '') {
+                whereClause.AND.push({
+                    OR: [
+                        // Buscar en los campos del modelo relacionado 'Persona'
+                        { Persona: { Nombre: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { Apellido1: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { Apellido2: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { CI: { contains: word, mode: 'insensitive' } } },
+                        { Persona: { Correo: { contains: word, mode: 'insensitive' } } },
+                        // Buscar en el nombre del área a través de la relación 'area_Tribunal'
+                        {
+                            area_Tribunal: {
+                                some: {
+                                    area: {
+                                        nombre_area: {
+                                            contains: word,
+                                            mode: 'insensitive'
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                });
+            }
+
+            // 4. Realizar las consultas a la base de datos usando la cláusula 'where'
+            const total = await this.prisma.tribunal_Docente.count({
+                where: whereClause
+            });
+
+            const tribunales = await this.prisma.tribunal_Docente.findMany({
+                where: whereClause,
+                skip,
+                take,
+                include: {
+                    Persona: true,
+                    area_Tribunal: {
+                        include: { area: true }
+                    }
+                }
+            });
+
+            // 5. Mapear los resultados para darles el formato de salida deseado
+            const items = tribunales.map(tribunal => {
+                const { created_at, updated_at, Persona, area_Tribunal, ...result } = tribunal;
+                const Nombre = Persona ? Persona.Nombre : null;
+                const Apellido = Persona ? Persona.Apellido1 : null;
+                const Apellido2 = Persona ? Persona.Apellido2 : null;
+                const areas = (area_Tribunal || [])
+                    .map(a =>
+                        a.area
+                            ? { nombre_area: a.area.nombre_area, id_area: a.area.id_area }
+                            : null
+                    )
+                    .filter(Boolean);
+
+                const correo = Persona ? Persona.Correo : null;
+                const telefono = Persona ? Persona.telefono : null;
+                const ci = Persona ? Persona.CI : null;
+                return { ...result, Nombre, Apellido, Apellido2, areas, correo, telefono, ci };
+            });
+
+            return {
+                items,
+                total,
+                page: Number(page),
+                pageSize: Number(pageSize),
+                totalPages: Math.ceil(total / pageSize)
+            };
+        } catch (error) {
+            // Manejo de errores mejorado para dar más contexto
+            console.error("Error en getTribunalesDocentesFiltred:", error);
+            throw new Error(`Error al obtener los tribunales docentes: ${error.message}`);
+        }
+    }
+
+
     async createTribunalDocente(body: any) {
         try {
             return await this.prisma.$transaction(async (tx) => {

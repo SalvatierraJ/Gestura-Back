@@ -48,6 +48,7 @@
     "ioredis": "^5.7.0",
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^3.2.0",
+    "lodash.debounce": "^4.0.8",
     "multer": "^2.0.1",
     "multer-storage-cloudinary": "^4.0.0",
     "nodemailer": "^7.0.5",
