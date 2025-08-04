@@ -30,6 +30,11 @@ import { RegistroMateriaModule } from './registro-materia/registro-materia.modul
 import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
 import { JwtModule } from '@nestjs/jwt';
 import { JWT_KEY } from '../constants/jwt-key';
+import { RedisService } from './redis/redis.service';
+import { ChatbotService } from './chatbot/chatbot.service';
+import { ChatbotModule } from './chatbot/chatbot.module';
+import { RedisModule } from './redis/redis.module';
+import { GeminiService } from './gemini/gemini.service';
 
 @Module({
   imports: [
@@ -72,10 +77,12 @@ import { JWT_KEY } from '../constants/jwt-key';
     PermisosModule,
     ModulosModule,
     MateriaModule,
-    RegistroMateriaModule
+    RegistroMateriaModule,
+    ChatbotModule,
+    RedisModule
 
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService, CasosEstudioService],
+  providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService],
 })
 export class AppModule { }
