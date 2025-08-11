@@ -8,7 +8,21 @@ interface EstudianteData {
     estado: string;
     turno_inscripcion: string;
     turno_moda: string;
+    semestre_ingreso: string;
+    semestre_ultimo: string;
 }
+
+type EntradaDocente = {
+    agd_appaterno: string;
+    agd_apmaterno: string;
+    agd_nombres: string;
+    semestre: string;
+    agd_docnro: string;
+    mat_codigo: string;
+    mdl_descripcion: string;
+    mdu_codigo: string;
+    pln_grupo: string;
+};
 @Injectable()
 export class MateriaService {
     constructor(private prisma: PrismaService) { }
@@ -1146,6 +1160,8 @@ export class MateriaService {
                 estado: data.estado,
                 turno_inscripcion: data.turno_inscripcion,
                 turno_moda: data.turno_moda,
+                semestre_ingreso: data.semestre_ingreso,
+                semestre_ultimo: data.semestre_ultimo,
                 updated_at: new Date(),
             },
         });
@@ -1225,6 +1241,28 @@ export class MateriaService {
 
 
     async recomendarHorariosMateriasFaltantes(nombreCarrera: string, numeroPensum: number) {
+        // Parámetros configurables:
+        const PORCENTAJE_MINIMO_VENCIDO = 0.80; // 80%
+        const ARRASTRES_MAXIMOS = 2;            // Hasta 2 materias pendientes permitidas
+
+        // Calcular semestre actual y anterior dinámicamente
+        const ahora = new Date();
+        const anioActual = ahora.getFullYear();
+        const mesActual = ahora.getMonth() + 1; // Enero=0
+        let semestreActual = "";
+        let semestreAnterior = "";
+        if (mesActual >= 1 && mesActual <= 6) {
+            semestreActual = `${anioActual}-1`;
+            semestreAnterior = `${anioActual - 1}-2`;
+        } else {
+            semestreActual = `${anioActual}-2`;
+            semestreAnterior = `${anioActual}-1`;
+        }
+
+        function extraerSemestreValido(estudiante: any): string | null {
+            return estudiante.semestre_ultimo || estudiante.semestre_ingreso || null;
+        }
+
         const carrera = await this.prisma.carrera.findFirst({
             where: { nombre_carrera: nombreCarrera }
         });
@@ -1238,19 +1276,54 @@ export class MateriaService {
             include: {
                 materia: {
                     include: {
-                        materia_preRequisito: true 
+                        materia_preRequisito: true
                     }
                 }
             }
         });
+
         const estudiantesCarrera = await this.prisma.estudiante_Carrera.findMany({
             where: { Id_Carrera: carrera.id_carrera },
-            include: { estudiante: { include: { estudiantes_materia: true } } }
+            include: {
+                estudiante: {
+                    include: {
+                        estudiantes_materia: true,
+                        Persona: true
+                    }
+                }
+            }
         });
 
-        const estudiantesCarreraRegulares = estudiantesCarrera.filter(ec =>
-            ec.estudiante && ec.estudiante.estado && ec.estudiante.estado.trim().toLowerCase() === 'regular'
-        );
+        // --- FILTRO SOLO ESTUDIANTES DEL SEMESTRE ACTUAL O ANTERIOR ---
+        const estudiantesCarreraRegulares = estudiantesCarrera.filter(ec => {
+            if (
+                !ec.estudiante ||
+                !ec.estudiante.estado ||
+                ec.estudiante.estado.trim().toLowerCase() !== 'regular'
+            ) return false;
+
+            const semestre = extraerSemestreValido(ec.estudiante);
+
+            return semestre === semestreActual || semestre === semestreAnterior;
+        });
+        // -------------------------------------------------------------
+
+        // Materias agrupadas por semestre
+        const materiasPorSemestre: Record<string, string[]> = {};
+        for (const mp of materiasPensum) {
+            if (mp.semestre && mp.id_materia) {
+                if (!materiasPorSemestre[mp.semestre]) {
+                    materiasPorSemestre[mp.semestre] = [];
+                }
+                materiasPorSemestre[mp.semestre].push(mp.id_materia.toString());
+            }
+        }
+
+        // Mapeo materia → semestre
+        const materiaASemestre = Object.entries(materiasPorSemestre).reduce((acc, [sem, ids]) => {
+            for (const id of ids) acc[id] = parseInt(sem);
+            return acc;
+        }, {} as Record<string, number>);
 
         type ResultadoMateriaHorario = {
             materia: {
@@ -1264,63 +1337,111 @@ export class MateriaService {
                 estudiantes: number;
                 grupos_sugeridos: number;
                 estudiantes_en_espera: number;
+                detalle_estudiantes: {
+                    nombre: string;
+                    registro: string;
+                    semestre_actual: number;
+                }[];
             }[];
         };
+
         const resultado: ResultadoMateriaHorario[] = [];
 
         for (const mp of materiasPensum) {
             const idMateria = mp.id_materia;
-            const prerequisitos = mp.materia?.materia_preRequisito?.map(pr => pr.id_materia_preRequisito) || [];
+            const prerequisitos = mp.materia?.materia_preRequisito || [];
+
             const estudiantesQueLaNecesitan = estudiantesCarreraRegulares.filter(ec => {
                 if (!ec.estudiante) return false;
-                const cursada = ec.estudiante.estudiantes_materia.find(em => em.id_materia === idMateria);
-                if (cursada && cursada.estado === "aprobado") return false;
-                if (prerequisitos.length > 0) {
-                    const todosAprobados = prerequisitos.every(prId =>
-                        ec.estudiante && ec.estudiante.estudiantes_materia.find(em =>
-                            em.id_materia === prId && em.estado === "aprobado"
-                        )
-                    );
-                    return todosAprobados;
+
+                const materiasAprobadas = ec.estudiante.estudiantes_materia
+                    .filter(em => em.estado === "aprobado")
+                    .map(em => em.id_materia?.toString());
+
+                // ---------- Lógica de avance controlado (vencidos + arrastre) ----------
+                let ultimoSemestreVencido = 0;
+                let arrastresAcumulados = 0;
+                const semestresOrdenados = Object.entries(materiasPorSemestre)
+                    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+                let arrastresPorSemestre: number[] = [];
+                // Paso 1: Identificar el último semestre vencido
+                for (const [sem, materias] of semestresOrdenados) {
+                    const total = materias.length;
+                    const aprobadas = materias.filter(id => materiasAprobadas.includes(id)).length;
+                    const porcentaje = total > 0 ? aprobadas / total : 0;
+                    if (porcentaje >= PORCENTAJE_MINIMO_VENCIDO) {
+                        ultimoSemestreVencido = parseInt(sem);
+                        arrastresPorSemestre.push(total - aprobadas); // Guardar arrastres de este semestre
+                    } else {
+                        arrastresPorSemestre.push(total - aprobadas);
+                        break;
+                    }
                 }
-                
-                return true;
+                arrastresAcumulados = arrastresPorSemestre.slice(0, ultimoSemestreVencido).reduce((acc, n) => acc + n, 0);
+
+                let semestreEstimado = ultimoSemestreVencido;
+                if (arrastresAcumulados <= ARRASTRES_MAXIMOS) {
+                    semestreEstimado = ultimoSemestreVencido + 1;
+                }
+
+                const semestreMateria = mp.semestre ? parseInt(mp.semestre) : Infinity;
+                if (semestreMateria > semestreEstimado + 2) return false;
+
+                // Prerrequisitos
+                const idsReq = prerequisitos.map(p => p.id_materia_preRequisito);
+                const totalReq = prerequisitos[0]?.total_materia ?? 0;
+
+                const aprobadasRequeridas = idsReq.every(reqId =>
+                    reqId && ec.estudiante && ec.estudiante.estudiantes_materia.some(em => em.id_materia === reqId && em.estado === 'aprobado')
+                );
+
+                // El total de materias aprobadas, incluyendo solo las válidas
+                const totalMaterias = materiasAprobadas.filter(id => id && materiaASemestre[id.toString()] !== undefined).length;
+                const cumpleTotalRequisitos = totalMaterias >= totalReq;
+
+                // No permitir si ya cursó esta materia
+                const yaCursada = ec.estudiante.estudiantes_materia.some(em => em.id_materia === idMateria && em.estado === 'aprobado');
+                if (yaCursada) return false;
+
+                // Guardar el semestre calculado
+                ec.estudiante["semestre_estimado"] = semestreEstimado;
+                return aprobadasRequeridas && cumpleTotalRequisitos;
             });
 
-            const conteoHorarios: Record<string, Set<number>> = {};
+            // Agrupación por horarios (preferencia del estudiante)
+            const conteoHorarios: Record<string, { estudiantes: Set<number>, detalle: { nombre: string, registro: string, semestre_actual: number }[] }> = {};
+
             estudiantesQueLaNecesitan.forEach(ec => {
                 const e = ec.estudiante;
                 if (e) {
                     let turnoElegido: string | null = null;
-                    if (
-                        e.turno_moda &&
-                        e.turno_moda.toLowerCase() !== 'nada' &&
-                        e.turno_moda.toLowerCase() !== 'null' &&
-                        e.turno_moda.trim() !== ''
-                    ) {
+                    if (e.turno_moda && e.turno_moda.trim().toLowerCase() !== 'nada') {
                         turnoElegido = e.turno_moda.trim();
-                    } else if (
-                        e.turno_inscripcion &&
-                        e.turno_inscripcion.toLowerCase() !== 'nada' &&
-                        e.turno_inscripcion.toLowerCase() !== 'null' &&
-                        e.turno_inscripcion.trim() !== ''
-                    ) {
+                    } else if (e.turno_inscripcion && e.turno_inscripcion.trim().toLowerCase() !== 'nada') {
                         turnoElegido = e.turno_inscripcion.trim();
                     }
 
                     if (turnoElegido) {
-                        if (!conteoHorarios[turnoElegido]) conteoHorarios[turnoElegido] = new Set();
-                        conteoHorarios[turnoElegido].add(Number(e.id_estudiante));
+                        if (!conteoHorarios[turnoElegido]) {
+                            conteoHorarios[turnoElegido] = { estudiantes: new Set(), detalle: [] };
+                        }
+                        conteoHorarios[turnoElegido].estudiantes.add(Number(e.id_estudiante));
+                        conteoHorarios[turnoElegido].detalle.push({
+                            nombre: `${e.Persona?.Nombre || ''} ${e.Persona?.Apellido1 || ''}`.trim(),
+                            registro: e.nroRegistro || '',
+                            semestre_actual: e["semestre_estimado"] || 1
+                        });
                     }
                 }
             });
 
             const horariosRanking = Object.entries(conteoHorarios)
-                .map(([turno, estudiantesSet]) => ({
+                .map(([turno, data]) => ({
                     turno,
-                    estudiantes: estudiantesSet.size,
-                    grupos_sugeridos: Math.floor(estudiantesSet.size / 30),
-                    estudiantes_en_espera: estudiantesSet.size % 30
+                    estudiantes: data.estudiantes.size,
+                    grupos_sugeridos: Math.floor(data.estudiantes.size / 30),
+                    estudiantes_en_espera: data.estudiantes.size % 30,
+                    detalle_estudiantes: data.detalle
                 }))
                 .sort((a, b) => b.estudiantes - a.estudiantes);
 
@@ -1343,5 +1464,153 @@ export class MateriaService {
 
 
 
+
+    async registrarDocentesDesdeJson(json: EntradaDocente[]) {
+        for (const entrada of json) {
+            const materia = await this.prisma.materia.findFirst({
+                where: { cod_materia: BigInt(entrada.mat_codigo) }
+            });
+            if (!materia) {
+                console.warn(`Materia con cod_materia ${entrada.mat_codigo} no encontrada`);
+                continue;
+            }
+
+            let persona = await this.prisma.persona.findFirst({
+                where: {
+                    OR: [
+                        { CI: entrada.agd_docnro },
+                        {
+                            Nombre: entrada.agd_nombres,
+                            Apellido1: entrada.agd_appaterno,
+                            Apellido2: entrada.agd_apmaterno,
+                        }
+                    ]
+                }
+            });
+
+            if (!persona) {
+                persona = await this.prisma.persona.create({
+                    data: {
+                        Nombre: entrada.agd_nombres,
+                        Apellido1: entrada.agd_appaterno,
+                        Apellido2: entrada.agd_apmaterno,
+                        CI: entrada.agd_docnro,
+                    }
+                });
+            }
+
+            let tribunalDocente = await this.prisma.tribunal_Docente.findFirst({
+                where: {
+                    id_Persona: persona.Id_Persona,
+                    nroAgenda: entrada.agd_docnro,
+                }
+            });
+            if (!tribunalDocente) {
+                tribunalDocente = await this.prisma.tribunal_Docente.create({
+                    data: {
+                        id_Persona: persona.Id_Persona,
+                        nroAgenda: entrada.agd_docnro,
+                        estado: true,
+                    }
+                });
+            }
+
+            const horarioExistente = await this.prisma.horario_materia.findFirst({
+                where: {
+                    id_docente: tribunalDocente.id_tribunal,
+                    id_materia: materia.id_materia,
+                    grupo: entrada.pln_grupo,
+                    gestion: entrada.semestre,
+                    Modalidad: entrada.mdl_descripcion,
+                    modulo_inicio: parseInt(entrada.mdu_codigo),
+                }
+            });
+
+            if (!horarioExistente) {
+                await this.prisma.horario_materia.create({
+                    data: {
+                        id_materia: materia.id_materia,
+                        id_docente: tribunalDocente.id_tribunal,
+                        grupo: entrada.pln_grupo,
+                        gestion: entrada.semestre,
+                        Modalidad: entrada.mdl_descripcion,
+                        modulo_inicio: parseInt(entrada.mdu_codigo),
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                    }
+                });
+            }
+        }
+        return { ok: true };
+    }
+    private getGestionActual(): string {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth() + 1;
+        const s = m <= 6 ? 1 : 2;
+        return `${y}-${s}`;
+    }
+
+    async obtenerMateriasYDocentesGestionActual() {
+        const gestionActual = this.getGestionActual();
+
+        const horariosActuales = await this.prisma.horario_materia.findMany({
+            where: { gestion: gestionActual },
+            include: {
+                materia: true,
+            },
+            orderBy: [
+                { modulo_inicio: 'asc' },
+                { turno: 'asc' },
+                { id_horario: 'asc' },
+            ],
+        });
+
+        const materias = horariosActuales.map((h) => ({
+            id: String(h.id_horario),
+            nombre: h.materia?.nombre ?? '',
+            sigla: h.materia?.siglas_materia ?? '',
+            horario: h.horario ?? '',
+            modulo: h.modulo_inicio != null ? `M${h.modulo_inicio}` : '',
+            biModular: h.BiModular ?? false,
+        }));
+
+        const docentesRaw = await this.prisma.tribunal_Docente.findMany({
+            include: {
+                Persona: true,
+                horario_materia: {
+                    include: { materia: true },
+                },
+            },
+        });
+
+        const docentes = docentesRaw.map((doc) => ({
+            docente: {
+                id: String(doc.id_tribunal),
+                nombres: doc.Persona?.Nombre ?? '',
+                ap_paterno: doc.Persona?.Apellido1 ?? '',
+                ap_materno: doc.Persona?.Apellido2 ?? '',
+                ci: doc.Persona?.CI ?? '',
+            },
+            gestion:
+                doc.horario_materia.length > 0
+                    ? (doc.horario_materia
+                        .map((h) => h.gestion)
+                        .filter(Boolean)
+                        .sort()
+                        .pop() as string)
+                    : null,
+            materias: doc.horario_materia.map((h) => ({
+                materia: h.materia?.nombre ?? '',
+                sigla: h.materia?.siglas_materia ?? '',
+                grupo: h.grupo ?? '',
+                modulo_inicio: h.modulo_inicio ?? null,
+                modalidad: h.Modalidad ?? '',
+                gestion: h.gestion ?? '',
+            })),
+        }));
+
+        return { materias, docentes };
+    }
 
 }
