@@ -35,6 +35,8 @@ import { ChatbotService } from './chatbot/chatbot.service';
 import { ChatbotModule } from './chatbot/chatbot.module';
 import { RedisModule } from './redis/redis.module';
 import { GeminiService } from './gemini/gemini.service';
+import { IaService } from './ia/ia.service';
+import { IaModule } from './ia/ia.module';
 
 @Module({
   imports: [
@@ -79,10 +81,11 @@ import { GeminiService } from './gemini/gemini.service';
     MateriaModule,
     RegistroMateriaModule,
     ChatbotModule,
-    RedisModule
+    RedisModule,
+    IaModule
 
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService],
+  providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService, IaService],
 })
 export class AppModule { }

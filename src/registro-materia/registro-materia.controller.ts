@@ -2,6 +2,7 @@ import { GeminiService } from './../gemini/gemini.service';
 import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ChatbotService } from 'src/chatbot/chatbot.service';
+import { IaService } from 'src/ia/ia.service';
 import { MateriaService } from 'src/materia/materia.service';
 import { RedisService } from 'src/redis/redis.service';
 interface EstudianteData {
@@ -9,11 +10,25 @@ interface EstudianteData {
     estado: string;
     turno_inscripcion: string;
     turno_moda: string;
+    semestre_ingreso: string;
+    semestre_ultimo: string;
 }
+
+type EntradaDocente = {
+    agd_appaterno: string;
+    agd_apmaterno: string;
+    agd_nombres: string;
+    semestre: string;
+    agd_docnro: string;
+    mat_codigo: string;
+    mdl_descripcion: string;
+    mdu_codigo: string;
+    pln_grupo: string;
+};
 
 @Controller('registro-materia')
 export class RegistroMateriaController {
-    constructor(private materiaService: MateriaService, private readonly redisService: RedisService, private geminiService: GeminiService) { }
+    constructor(private materiaService: MateriaService, private readonly redisService: RedisService, private geminiService: GeminiService, private iaService: IaService) { }
 
     @Post('/Registrar-Materias')
     async editEstudiante(@Body() materias: any[]) {
@@ -150,36 +165,24 @@ export class RegistroMateriaController {
             carrera,
             Number(pensum),
         );
-
-        const prompt = this.construirPromptHorarios(carrera, pensum, materias);
-
-        const respuesta = await this.geminiService.consultarGemini(prompt);
-
         return {
             materias,
-            propuestaHorarios: respuesta,
         };
     }
 
-    construirPromptHorarios(carrera: string, pensum: number, materias: any[]) {
-        let prompt = `Simula una propuesta de módulos (M0 a M5) para abrir materias faltantes de la carrera ${carrera}, pensum ${pensum}.\n`;
-        prompt += `Cada materia puede asignarse a un único módulo. Intenta equilibrar la carga entre módulos y evita agrupar demasiadas del mismo semestre en un solo módulo.\n`;
-        prompt += `\nLista de materias:\n`;
-
-        materias.forEach((item: any) => {
-            const materia = item.materia;
-            if (materia) {
-                prompt += `- ${materia.nombre} (${materia.sigla}), semestre ${materia.semestre}\n`;
-            }
-        });
-
-        prompt += `\nDevuélveme la lista como:\nMateria - Sigla - Semestre: Módulo sugerido (M0 a M5)`;
-
-        return prompt;
+    @Post('/registrar-docente/json')
+    async registrarDocente(@Body() EntradaDocente: EntradaDocente[]) {
+        return this.materiaService.registrarDocentesDesdeJson(EntradaDocente);
+    }
+    @Get('/historial-docente-materias')
+    async obtenerHistorialMateriaDocente() {
+        return this.materiaService.obtenerMateriasYDocentesGestionActual();
     }
 
-
-
+    @Post('/sugerir-asignacion/materia')
+    async sugerirParaMateria(@Body() body: any) {
+        return this.iaService.sugerirAsignacionDocentes(body);
+    }
     //chatbot posiblemente se borre 
     @Get('/avance-gemini')
     async avancePensumGemini(

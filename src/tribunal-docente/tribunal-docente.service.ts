@@ -10,11 +10,10 @@ export class TribunalDocenteService {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
 
-            // 1. Obtener carreras que administra el usuario
             const usuario = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: user },
                 include: {
-                    usuario_Carrera:true
+                    usuario_Carrera: true
                 }
             });
 
@@ -34,7 +33,6 @@ export class TribunalDocenteService {
                 };
             }
 
-            // 2. Obtener las áreas relacionadas a esas carreras
             const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
                 where: { Id_Carrera: { in: carrerasIds } },
                 select: { Id_Area: true }
@@ -58,7 +56,6 @@ export class TribunalDocenteService {
                 };
             }
 
-            // 3. Buscar solo los tribunales/docentes que tengan áreas en esas área
             const total = await this.prisma.tribunal_Docente.count({
                 where: {
                     area_Tribunal: {
@@ -115,8 +112,8 @@ export class TribunalDocenteService {
     }
 
 
-//Obtener informacion por palabras
-  async getTribunalesDocentesFiltred({ page, pageSize, user, word }: { page: number, pageSize: number, user: bigint, word?: string }) {
+    //Obtener informacion por palabras
+    async getTribunalesDocentesFiltred({ page, pageSize, user, word }: { page: number, pageSize: number, user: bigint, word?: string }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
@@ -260,7 +257,7 @@ export class TribunalDocenteService {
                 if (!tipoTribunal) {
                     throw new Error('Tipo de tribunal no encontrado');
                 }
-                
+
                 const persona = await tx.persona.create({
                     data: {
                         Nombre: Persona.nombre,
@@ -273,7 +270,7 @@ export class TribunalDocenteService {
                         updated_at: new Date(),
                     }
                 });
-                
+
                 const newTribunal = await tx.tribunal_Docente.create({
                     data: {
                         id_Persona: persona.Id_Persona,
