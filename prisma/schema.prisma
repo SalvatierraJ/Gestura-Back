@@ -219,6 +219,8 @@ model estudiantes_materia {
   horario_materia       horario_materia? @relation(fields: [id_horario_materia], references: [id_horario], onDelete: NoAction, onUpdate: NoAction, map: "estudiante_materia_id_horario_materia_fkey")
   estudiante            estudiante?      @relation(fields: [id_estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction)
   materia               materia?         @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction)
+  @@unique([id_estudiante, id_materia, Gestion], map: "uniq_est_mat_gestion")
+
 }
 
 model facultad {
@@ -427,4 +429,16 @@ model WhatsAppSession {
   expires_at DateTime? @db.Timestamp(6)
 
   @@map("whatsapp_sessions")
+}
+
+
+model modulo_periodo {
+  id_modulo_Periodo BigInt    @id @default(autoincrement())
+  gestion           String?   @db.VarChar
+  modulo            String?   @db.VarChar
+  fecha_Inicio      DateTime? @db.Date
+  fecha_Fin         DateTime? @db.Date
+  modalidad         String?   @db.VarChar
+  created_at_       DateTime? @map("created_at ") @db.Timestamp(6)
+  updated_at        DateTime? @db.Timestamptz(6)
 }
