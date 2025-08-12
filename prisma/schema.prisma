@@ -428,3 +428,15 @@ model WhatsAppSession {
 
   @@map("whatsapp_sessions")
 }
+
+
+model modulo_periodo {
+  id_modulo_Periodo BigInt    @id @default(autoincrement())
+  gestion           String?   @db.VarChar
+  modulo            String?   @db.VarChar
+  fecha_Inicio      DateTime? @db.Date
+  fecha_Fin         DateTime? @db.Date
+  modalidad         String?   @db.VarChar
+  created_at_       DateTime? @map("created_at ") @db.Timestamp(6)
+  updated_at        DateTime? @db.Timestamptz(6)
+}

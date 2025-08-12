@@ -1,5 +1,5 @@
 import { estudiante_Carrera, materia_preRequisito, estudiantes_materia } from './../../node_modules/.prisma/client/index.d';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
 import dayjs from 'dayjs';
@@ -1573,6 +1573,7 @@ export class MateriaService {
             horario: h.horario ?? '',
             modulo: h.modulo_inicio != null ? `M${h.modulo_inicio}` : '',
             biModular: h.BiModular ?? false,
+            id_docente: String(h.id_docente)?.replace('null', ''),
         }));
 
         const docentesRaw = await this.prisma.tribunal_Docente.findMany({
@@ -1612,5 +1613,41 @@ export class MateriaService {
 
         return { materias, docentes };
     }
+
+
+    async asignarDocente( 
+        horarioId: number,
+        docenteId?: number | null
+    ) {
+        if (horarioId == null) {
+            throw new BadRequestException('horarioId es requerido');
+        }
+
+        const id_horario = Number(horarioId);
+        const id_docente =
+            docenteId === null || docenteId === undefined || String(docenteId).trim() === ''
+                ? null
+                : Number(docenteId);
+
+        const updated = await this.prisma.horario_materia.update({
+            where: { id_horario },
+            data: {
+                id_docente,
+                updated_at: new Date(),
+            },
+        });
+
+        return {
+            ok: true,
+            horario: {
+                id: updated.id_horario,
+                gestion: updated.gestion,
+                horario: updated.horario,
+                modulo_inicio: updated.modulo_inicio,
+                BiModular: updated.BiModular,
+            }
+        };
+    }
+
 
 }

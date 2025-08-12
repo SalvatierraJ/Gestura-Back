@@ -37,6 +37,8 @@ import { RedisModule } from './redis/redis.module';
 import { GeminiService } from './gemini/gemini.service';
 import { IaService } from './ia/ia.service';
 import { IaModule } from './ia/ia.module';
+import { ModuloPeriodoService } from './modulo-periodo/modulo-periodo.service';
+import { ModuloPeriodoModule } from './modulo-periodo/modulo-periodo.module';
 
 @Module({
   imports: [
@@ -82,10 +84,11 @@ import { IaModule } from './ia/ia.module';
     RegistroMateriaModule,
     ChatbotModule,
     RedisModule,
-    IaModule
+    IaModule,
+    ModuloPeriodoModule
 
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService, IaService],
+  providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService, IaService, ModuloPeriodoService],
 })
 export class AppModule { }

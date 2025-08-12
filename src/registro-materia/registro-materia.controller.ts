@@ -3,6 +3,7 @@ import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Q
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ChatbotService } from 'src/chatbot/chatbot.service';
 import { IaService } from 'src/ia/ia.service';
+import { AsignarDocenteDto } from 'src/materia/dto/asignar-docente.dto';
 import { MateriaService } from 'src/materia/materia.service';
 import { RedisService } from 'src/redis/redis.service';
 interface EstudianteData {
@@ -182,6 +183,19 @@ export class RegistroMateriaController {
     @Post('/sugerir-asignacion/materia')
     async sugerirParaMateria(@Body() body: any) {
         return this.iaService.sugerirAsignacionDocentes(body);
+    }
+
+    @Post('/asignar-docente-materia')
+    async asignarDocenteMateria(@Body() dto: AsignarDocenteDto) {
+        const updated = await this.materiaService.asignarDocente(dto.id_horario, dto.id_docente ?? null);
+
+        return {
+            ok: true,
+            mensaje: dto.id_docente
+                ? 'Docente asignado correctamente'
+                : 'Docente desasignado correctamente',
+            data: updated,
+        };
     }
     //chatbot posiblemente se borre 
     @Get('/avance-gemini')
