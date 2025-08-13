@@ -1,6 +1,6 @@
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { TribunalDocenteService } from './../tribunal-docente/tribunal-docente.service';
-import { Body, Controller, Get, Post, Put, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Request, UseGuards } from '@nestjs/common';
 
 @Controller('docentesmanagement')
 export class DocentesmanagementController {
@@ -14,17 +14,17 @@ export class DocentesmanagementController {
         const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
-        return this.TribunalDocenteService.getTribunalesDocentes({ page, pageSize,user: user.userId });
+        return this.TribunalDocenteService.getTribunalesDocentes({ page, pageSize, user: user.userId });
     }
     //Filtrado docentes por palabra
     @UseGuards(JwtAuthGuard)
     @Get('/docentes/:page/:pageSize/:word')
-    async getFiltredDocentes(@Request() req) { 
+    async getFiltredDocentes(@Request() req) {
         const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
         const word = String(req.params.word);
-        return this.TribunalDocenteService.getTribunalesDocentesFiltred({page, pageSize, user: user.userId, word});
+        return this.TribunalDocenteService.getTribunalesDocentesFiltred({ page, pageSize, user: user.userId, word });
     }
 
     @Post('/crear-docente')
@@ -36,10 +36,12 @@ export class DocentesmanagementController {
         const id = Number(req.params.id);
         return this.TribunalDocenteService.updateTribunalDocente(id, body);
     }
-    @Put('/actualizar-estado-docente/:id')
-    async updateEstadoDocente(@Request() req, @Body() body: any) {
-        const id = Number(req.params.id);
-        return this.TribunalDocenteService.updateEstadoTribunalDocente(id, body);
+    @Put('/tribunales/:id/estado-o-borrado')
+    async setEstadoOrDeleteTribunal(
+        @Param('id') id: string,
+        @Body() body: { estado?: boolean; delete?: boolean }
+    ) {
+        return this.TribunalDocenteService.updateStateOrDeleteTribunalDocente(Number(id), body);
     }
 
 }

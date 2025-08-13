@@ -1,3 +1,4 @@
+import { Persona } from './../../node_modules/.prisma/client/index.d';
 import { Injectable, HttpException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
@@ -30,7 +31,6 @@ export class EstudianteService {
       const resultados = await Promise.all(
         estudiantes.map(async (estudiante) => {
           try {
-            // ✅ VERIFICAR SI YA EXISTE POR CI
             const estudiantePorCI = await this.prisma.estudiante.findFirst({
               where: {
                 Persona: {
@@ -49,7 +49,6 @@ export class EstudianteService {
               };
             }
 
-            // ✅ VERIFICAR SI YA EXISTE POR CORREO
             const estudiantePorCorreo = await this.prisma.persona.findFirst({
               where: {
                 Correo: estudiante.correo,
@@ -65,7 +64,6 @@ export class EstudianteService {
               };
             }
 
-            // ✅ VERIFICAR SI YA EXISTE POR NÚMERO DE REGISTRO
             const estudiantePorRegistro =
               await this.prisma.estudiante.findFirst({
                 where: {
@@ -82,7 +80,6 @@ export class EstudianteService {
               };
             }
 
-            // ✅ VALIDAR CAMPOS OBLIGATORIOS
             if (!estudiante.correo || estudiante.correo.trim() === '') {
               return {
                 error: true,
@@ -92,7 +89,6 @@ export class EstudianteService {
               };
             }
 
-            // ✅ CREAR ESTUDIANTE (solo si pasa todas las validaciones)
             const nuevoEstudiante = await this.prisma.estudiante.create({
               data: {
                 nroRegistro: String(estudiante.numeroregistro),
@@ -119,7 +115,6 @@ export class EstudianteService {
               include: { Persona: true },
             });
 
-            // ✅ CREAR USUARIO AUTOMÁTICAMENTE
             await this.crearUsuarioParaEstudiante(
               nuevoEstudiante.Persona!,
               estudiante.numeroregistro,
@@ -143,7 +138,6 @@ export class EstudianteService {
         }),
       );
 
-      // ✅ SEPARAR RESULTADOS EXITOSOS Y CON ERRORES
       const exitosos = resultados.filter((r) => !r.error);
       const conErrores = resultados.filter((r) => r.error);
 
@@ -168,7 +162,6 @@ export class EstudianteService {
         throw new HttpException('Debes enviar al menos un estudiante', 400);
       }
 
-      // Buscar el rol "Estudiante"
       const rolEstudiante = await this.prisma.rol.findFirst({
         where: {
           Nombre: {
@@ -213,7 +206,6 @@ export class EstudianteService {
 
       for (const estudiante of estudiantes) {
         try {
-          // ✅ VERIFICAR DUPLICADOS (igual que en createEstudiantes)
           const estudiantePorCI = await this.prisma.estudiante.findFirst({
             where: {
               Persona: { CI: String(estudiante.ci) },
@@ -289,7 +281,6 @@ export class EstudianteService {
             include: { Persona: true },
           });
 
-          // ✅ CREAR USUARIO AUTOMÁTICAMENTE
           await this.crearUsuarioParaEstudiante(
             creado.Persona!,
             estudiante.numeroregistro,
@@ -409,139 +400,122 @@ export class EstudianteService {
     }
   }
 
-  async getAllEstudiantes({ page, pageSize, user }) {
+  async getAllEstudiantes({
+    page = 1,
+    pageSize = 10,
+    user,
+    word,
+  }: {
+    page?: number;
+    pageSize?: number;
+    user: bigint | number;
+    word?: string;
+  }) {
     try {
       const skip = (Number(page) - 1) * Number(pageSize);
       const take = Number(pageSize);
 
-      // 1. Obtener carreras que administra el usuario
       const usuario = await this.prisma.usuario.findUnique({
-        where: { Id_Usuario: user },
-        include: { usuario_Carrera: true }
+        where: { Id_Usuario: user as any },
+        include: {
+          usuario_Carrera: true,
+          Usuario_Rol: { include: { Rol: true } },
+        },
       });
-
       if (!usuario) throw new Error("Usuario no encontrado");
 
-      const carrerasIds = usuario.usuario_Carrera
-        .map((rc) => rc.Id_carrera)
-        .filter((id): id is bigint => !!id);
+      const isAdmin = (usuario.Usuario_Rol || []).some(
+        (ur) => ur.Rol?.Nombre === "Admin"
+      );
 
-      if (carrerasIds.length === 0) return { items: [], total: 0, page, pageSize, totalPages: 0 };
+      const ESTADOS_OBJETIVO = [
+        "EGRESADO",
+        "HABILITADOS PARA DEFENSA",
+        "HABILITADO PARA DEFENSA",
+      ];
 
-      const requiredMaterias = await this.prisma.materia_carrera.findMany({
-        where: { id_carrera: { in: carrerasIds } },
-        select: { id_carrera: true, id_materia: true },
-      });
+      const whereBase: any = {
+        estado: { in: ESTADOS_OBJETIVO },
+      };
 
-      const materiasPorCarrera = new Map<bigint, Set<bigint>>();
-      for (const { id_carrera, id_materia } of requiredMaterias) {
-        if (!id_carrera || !id_materia) continue;
-        if (!materiasPorCarrera.has(id_carrera)) {
-          materiasPorCarrera.set(id_carrera, new Set());
+      if (word && word.trim() !== "") {
+        const w = word.trim();
+        whereBase.OR = [
+          { Persona: { Nombre: { contains: w, mode: "insensitive" } } },
+          { Persona: { Apellido1: { contains: w, mode: "insensitive" } } },
+          { Persona: { Apellido2: { contains: w, mode: "insensitive" } } },
+          { Persona: { CI: { contains: w, mode: "insensitive" } } },
+          { Persona: { Correo: { contains: w, mode: "insensitive" } } },
+          {
+            estudiante_Carrera: {
+              some: {
+                carrera: {
+                  nombre_carrera: { contains: w, mode: "insensitive" },
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      if (!isAdmin) {
+        const carrerasIds = (usuario.usuario_Carrera || [])
+          .map((rc) => rc.Id_carrera)
+          .filter((id): id is bigint => id != null);
+
+        if (carrerasIds.length === 0) {
+          return {
+            items: [],
+            total: 0,
+            page: Number(page),
+            pageSize: Number(pageSize),
+            totalPages: 0,
+          };
         }
-        materiasPorCarrera.get(id_carrera)!.add(id_materia);
+
+        whereBase.estudiante_Carrera = {
+          some: { Id_Carrera: { in: carrerasIds } },
+          delete_status: { not: true },
+          delete_at: null,
+        };
       }
 
-      if (materiasPorCarrera.size === 0) {
-        return { items: [], total: 0, page, pageSize, totalPages: 0 };
-      }
+      const total = await this.prisma.estudiante.count({ where: whereBase });
 
-      const estudiantesAvanzados = await this.prisma.estudiante.findMany({
-        where: {
+      const estudiantes = await this.prisma.estudiante.findMany({
+        where: whereBase,
+        skip,
+        take,
+        orderBy: { id_estudiante: "asc" },
+        include: {
+          Persona: true,
+          defensa: {
+            include: { Tipo_Defensa: { select: { Nombre: true } } },
+          },
           estudiante_Carrera: {
-            some: { Id_Carrera: { in: carrerasIds } }
-          }
-        },
-        select: {
-          id_estudiante: true,
-          _count: {
-            select: {
-              estudiantes_materia: {
-                where: { estado: 'Aprobado' }
-              }
-            }
-          }
-        }
-      });
-
-      const idsAvanzados = estudiantesAvanzados
-        .filter(estudiante => estudiante._count.estudiantes_materia >= 35)
-        .map(estudiante => estudiante.id_estudiante);
-
-      if (idsAvanzados.length === 0) {
-        return { items: [], total: 0, page, pageSize, totalPages: 0 };
-      }
-      
-      // 3. Obtener todos los estudiantes relevantes con sus materias aprobadas
-      const potentialStudents = await this.prisma.estudiante.findMany({
-        where: {
-          id_estudiante: { in: idsAvanzados },
-          estudiante_Carrera: { some: { Id_Carrera: { in: carrerasIds } } },
-        },
-        select: {
-          id_estudiante: true,
-          estudiante_Carrera: { select: { Id_Carrera: true } },
-          estudiantes_materia: {
-            where: { estado: 'Aprobado' },
-            select: { id_materia: true },
+            include: { carrera: { select: { nombre_carrera: true } } },
           },
         },
       });
 
-      // 4. Procesar en memoria para encontrar los IDs de los estudiantes que completaron una carrera
-      const studentsWhoCompletedAllMaterias = potentialStudents
-        .filter(student => {
-          const studentApprovedMateriasIds = new Set(
-            student.estudiantes_materia.map(m => m.id_materia).filter((id): id is bigint => !!id)
-          );
-
-          return student.estudiante_Carrera.some(ec => {
-            const required = materiasPorCarrera.get(ec.Id_Carrera!);
-            if (!required || required.size === 0) return false;
-
-            return [...required].every(materiaId => studentApprovedMateriasIds.has(materiaId));
-          });
-        })
-        .map(student => student.id_estudiante);
-
-      const ids = [...new Set(studentsWhoCompletedAllMaterias)];
-
-      if (ids.length === 0) {
-        return { items: [], total: 0, page, pageSize, totalPages: 0 };
-      }
-
-      // 5. Total y paginación
-      const total = ids.length;
-      const pageIds = ids.slice(skip, skip + take);
-
-      // 6. Obtener datos detallados finales paginados
-      const estudiantes = await this.prisma.estudiante.findMany({
-        where: { id_estudiante: { in: pageIds } },
-        include: {
-          Persona: true,
-          defensa: { include: { Tipo_Defensa: { select: { Nombre: true } } } },
-          estudiante_Carrera: { include: { carrera: { select: { nombre_carrera: true } } } },
-        },
-      });
-
-      // 7. Formatear la respuesta
-      const items = estudiantes.map((estudiante) => {
-        const { Persona, defensa, estudiante_Carrera, ...rest } = estudiante;
-        const carreraNombre = estudiante_Carrera?.[0]?.carrera?.nombre_carrera || "";
+      const items = estudiantes.map((e) => {
+        const { Persona, defensa, estudiante_Carrera, ...rest } = e;
+        const carreraNombre =
+          estudiante_Carrera?.[0]?.carrera?.nombre_carrera || "";
 
         return {
           ...rest,
-          nombre: Persona?.Nombre || '',
-          apellido1: Persona?.Apellido1 || '',
-          apellido2: Persona?.Apellido2 || '',
-          correo: Persona?.Correo || '',
-          telefono: Persona?.telefono || '',
-          ci: Persona?.CI || '',
+          nombre: Persona?.Nombre || "",
+          apellido1: Persona?.Apellido1 || "",
+          apellido2: Persona?.Apellido2 || "",
+          correo: Persona?.Correo || "",
+          telefono: Persona?.telefono || "",
+          ci: Persona?.CI || "",
           carrera: carreraNombre,
           defensas: (defensa || []).map((d) => ({
             id_defensa: d.id_defensa,
             estado: d.estado,
-            nombre_tipo_defensa: d.Tipo_Defensa?.Nombre || '',
+            nombre_tipo_defensa: d.Tipo_Defensa?.Nombre || "",
             fecha_defensa: d.fecha_defensa,
           })),
         };
@@ -552,7 +526,7 @@ export class EstudianteService {
         total,
         page: Number(page),
         pageSize: Number(pageSize),
-        totalPages: Math.ceil(total / pageSize),
+        totalPages: Math.ceil(total / Number(pageSize)),
       };
     } catch (error) {
       throw new Error(`Error fetching estudiantes: ${error.message}`);
@@ -560,132 +534,74 @@ export class EstudianteService {
   }
 
 
+  async updateStateOrDeleteEstudiante(
+    id: number | bigint,
+    body: { estado?: boolean; delete?: boolean },
+  ) {
+    const hasEstado = typeof body?.estado === 'boolean';
+    const hasDelete = typeof body?.delete === 'boolean';
 
-   async getAllEstudiantesFiltred({ page, pageSize, user, word }: { page: number, pageSize: number, user: bigint, word?: string }) {
-        try {
-            const skip = (Number(page) - 1) * Number(pageSize);
-            const take = Number(pageSize);
-
-            const usuario = await this.prisma.usuario.findUnique({
-                where: { Id_Usuario: user },
-                include: {
-                    usuario_Carrera: true
-                },
-            });
-
-            if (!usuario) throw new Error('Usuario no encontrado');
-
-            const carrerasIds = usuario.usuario_Carrera
-                .map((rc) => rc.Id_carrera)
-                .filter((id): id is bigint => id !== null && id !== undefined);
-
-            if (carrerasIds.length === 0) {
-                return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
-            }
-
-            const whereClause: any = {
-                AND: [
-                    {
-                        estudiante_Carrera: {
-                            some: {
-                                Id_Carrera: { in: carrerasIds },
-                            },
-                        },
-                    }
-                ]
-            };
-
-            if (word && word.trim() !== '') {
-                whereClause.AND.push({
-                    OR: [
-                        { Persona: { Nombre: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { Apellido1: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { Apellido2: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { CI: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { Correo: { contains: word, mode: 'insensitive' } } },
-                        { nroRegistro: { contains: word, mode: 'insensitive' } },
-                        {
-                            estudiante_Carrera: {
-                                some: {
-                                    carrera: {
-                                        nombre_carrera: {
-                                            contains: word,
-                                            mode: 'insensitive'
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    ]
-                });
-            }
-
-            const total = await this.prisma.estudiante.count({
-                where: whereClause,
-            });
-
-            const estudiantes = await this.prisma.estudiante.findMany({
-                where: whereClause,
-                skip,
-                take,
-                include: {
-                    Persona: true,
-                    defensa: {
-                        include: {
-                            Tipo_Defensa: {
-                                select: {
-                                    Nombre: true,
-                                },
-                            },
-                        },
-                    },
-                    estudiante_Carrera: {
-                        include: {
-                            carrera: {
-                                select: {
-                                    nombre_carrera: true,
-                                },
-                            },
-                        },
-                    },
-                },
-            });
-
-            const items = estudiantes.map((estudiante) => {
-                const { Persona, defensa, estudiante_Carrera, ...rest } = estudiante;
-                const carreraNombre =
-                    estudiante_Carrera && estudiante_Carrera.length > 0
-                        ? estudiante_Carrera[0]?.carrera?.nombre_carrera || ''
-                        : '';
-
-                return {
-                    ...rest,
-                    nombre: Persona?.Nombre || '',
-                    apellido1: Persona?.Apellido1 || '',
-                    apellido2: Persona?.Apellido2 || '',
-                    correo: Persona?.Correo || '',
-                    telefono: Persona?.telefono || '',
-                    ci: Persona?.CI || '',
-                    carrera: carreraNombre,
-                    defensas: (defensa || []).map((d) => ({
-                        id_defensa: d.id_defensa,
-                        estado: d.estado,
-                        nombre_tipo_defensa: d.Tipo_Defensa?.Nombre || '',
-                        fecha_defensa: d.fecha_defensa,
-                    })),
-                };
-            });
-
-            return {
-                items,
-                total,
-                page: Number(page),
-                pageSize: Number(pageSize),
-                totalPages: Math.ceil(total / pageSize),
-            };
-        } catch (error) {
-            console.error("Error en getAllEstudiantesFiltred:", error);
-            throw new Error(`Error al obtener los estudiantes: ${error.message}`);
-        }
+    if (hasEstado === hasDelete) {
+      return 'Debes enviar exactamente uno de los campos: "estado" (boolean) o "delete" (boolean).';
     }
+
+    const existente = await this.prisma.estudiante.findUnique({
+      where: { id_estudiante: Number(id) },
+      select: { id_estudiante: true },
+    });
+    if (!existente) throw new Error('Estudiante no encontrado');
+
+    if (hasEstado) {
+      const updated = await this.prisma.estudiante.update({
+        where: { id_estudiante: Number(id) },
+        data: {
+          updated_at: new Date(),
+        },
+      });
+      return updated;
+    }
+
+    if (body.delete === true) {
+      const updated = await this.prisma.estudiante.update({
+        where: { id_estudiante: Number(id) },
+        data: {
+          delete_state: true,
+          delete_at: new Date(),
+          updated_at: new Date(),
+          Persona: {
+            update: {
+              delete_state: true,
+              delete_at: new Date(),
+              updated_at: new Date(),
+            }
+          },
+        }
+      });
+      return updated;
+    } else {
+      const updated = await this.prisma.estudiante.update({
+        where: { id_estudiante: Number(id) },
+        data: {
+          delete_state: false,
+          delete_at: null,
+          updated_at: new Date(),
+          Persona: {
+            update: {
+              delete_state: false,
+              delete_at: null,
+              updated_at: new Date(),
+            }
+          },
+        },
+      });
+      return updated;
+    }
+  }
+
+  async softDeleteEstudiante(id: number | bigint) {
+    return this.updateStateOrDeleteEstudiante(id, { delete: true });
+  }
+  async restoreEstudiante(id: number | bigint) {
+    return this.updateStateOrDeleteEstudiante(id, { delete: false });
+  }
 }

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.6](https://github.com/SalvatierraJ/Gestura-Back/compare/v0.0.5...v0.0.6) (2025-08-13)
+
+
+### Features
+
+* se agrego a todos los modulos el CRUD completo de altas y bajas, excepto a los modulos con informacion inmutable ([097851e](https://github.com/SalvatierraJ/Gestura-Back/commit/097851e4640a4edeee763ed46a9c84fcdbfbcb2b))
+
 ### [0.0.5](https://github.com/SalvatierraJ/Gestura-Back/compare/v0.0.4...v0.0.5) (2025-08-11)
 
 ### [0.0.4](https://github.com/SalvatierraJ/Gestura-Back/compare/v0.0.3...v0.0.4) (2025-08-04)

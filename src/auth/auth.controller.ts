@@ -2,7 +2,11 @@ import { UserService } from './../user/user.service';
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
+  ParseIntPipe,
+  Patch,
   Post,
   Put,
   Request,
@@ -22,7 +26,7 @@ export class AuthController {
     private authService: AuthService,
     private userService: UserService,
     private personService: PeopleService,
-  ) {}
+  ) { }
 
   @Post('/register')
   async register(@Body() body: CreateUserDto) {
@@ -59,6 +63,16 @@ export class AuthController {
     );
   }
 
+  @Delete('/eliminar/:id')
+  async softDelete(@Param('id', ParseIntPipe) id: number) {
+    return this.userService.softDeleteUsuario(id);
+  }
+
+  @Patch('/:id/restaurar')
+  async restore(@Param('id', ParseIntPipe) id: number) {
+    return this.userService.restoreUsuario(id);
+  }
+
   @Get('/search-people/:q')
   async searchPeople(@Request() req) {
     if (!req.params.q || req.params.q.length < 2) {
@@ -80,14 +94,14 @@ export class AuthController {
   }
 
   // Nuevos endpoints para verificar y completar perfil
-  @UseGuards(JwtAuthGuard,AuthorizationGuard)
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Get('/verificar-perfil')
   async verificarPerfil(@Request() req) {
     const userId = req.user.userId;
     return this.authService.verificarPerfilCompleto(BigInt(userId));
   }
 
-  @UseGuards(JwtAuthGuard,AuthorizationGuard)
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Post('/completar-perfil')
   async completarPerfil(
     @Request() req,
@@ -97,9 +111,9 @@ export class AuthController {
     return this.authService.completarPerfil(BigInt(userId), updateProfileDto);
   }
 
-     @UseGuards(AuthorizationGuard)
-    @Post('/login-oauth')
-    async loginOauth(@Body() body:any) {
-        return this.authService.loginOrRegisterOauthUser(body.id_token);
-    }
+  @UseGuards(AuthorizationGuard)
+  @Post('/login-oauth')
+  async loginOauth(@Body() body: any) {
+    return this.authService.loginOrRegisterOauthUser(body.id_token);
+  }
 }
