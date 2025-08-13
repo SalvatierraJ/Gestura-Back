@@ -1,13 +1,15 @@
 import { CasosEstudioService } from './../casos-estudio/casos-estudio.service';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { CarreraService } from 'src/carrera/carrera.service';
-import { BadRequestException, Body, Controller, Get, Post, Put, Request, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Put, Request, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { FacultadService } from 'src/facultad/facultad.service';
 import { CreateCarrera } from 'src/carrera/dto/create-carrera.dto';
 import { AreaService } from 'src/area/area.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { UpdateCasoEstudioDto } from 'src/casos-estudio/dto/update-caso-estudio.dto';
+import { UpdateCarreraStateDto } from 'src/carrera/dto/update-carrera-state.dto';
+import { UpdateCasoStateOrDeleteDto } from 'src/casos-estudio/dto/update-caso-state-or-delete.dto';
 
 @Controller('case-study-management')
 export class CaseStudyManagementController {
@@ -34,25 +36,42 @@ export class CaseStudyManagementController {
     }
     @UseGuards(JwtAuthGuard)
     @Get('/carreras/:page/:pageSize/:word')
-    async getCarrerasFilter(@Request() req) { 
+    async getCarrerasFilter(@Request() req) {
         const user = req.user;
-        const page  = Number(req.params.page);
+        const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
         const word = String(req.params.word);
-        return this.carreraService.getCarrerasFiltred({page, pageSize, user:user.userId, word: word});
+        return this.carreraService.getCarrerasFiltred({ page, pageSize, user: user.userId, word: word });
     }
+    @UseGuards(JwtAuthGuard)
     @Post('/crear-carrera')
-    async createCarrera(@Body() body: CreateCarrera) {
-        return this.carreraService.createCarrera(body);
+    async createCarrera(@Body() body: CreateCarrera, @Request() req) {
+        const user = req.user;
+        return this.carreraService.createCarrera(body, user.userId);
     }
     @Put('/actualizar-carrera/:id')
     async updateCarrera(@Request() req, @Body() body: CreateCarrera) {
         const id = BigInt(req.params.id);
         return this.carreraService.updateCarrera(id, body);
     }
-    @Put('/actualizar-estado-carrera/:id')
-    async updateEstadoCarrera(@Request() req, @Body() body: any) {
-        const id = BigInt(req.params.id);
+
+    @Patch('/:id/state')
+    async updateState(
+        @Param('id') idParam: string,
+        @Body() body: UpdateCarreraStateDto,
+    ) {
+        const id = BigInt(idParam);
+
+        const hasDelete = typeof body.delete === 'boolean';
+        const hasEstado = typeof body.estado === 'boolean';
+
+        if (!hasDelete && !hasEstado) {
+            throw new BadRequestException('Debes enviar "delete" o "estado".');
+        }
+        if (hasDelete && hasEstado) {
+            throw new BadRequestException('No puedes enviar "delete" y "estado" a la vez.');
+        }
+
         return this.carreraService.updateStateCarrera(id, body);
     }
     // Area Management
@@ -66,12 +85,12 @@ export class CaseStudyManagementController {
     }
     @UseGuards(JwtAuthGuard)
     @Get('/areas/:page/:pageSize/:word')
-    async getFiltredAreas(@Request() req) { 
+    async getFiltredAreas(@Request() req) {
         const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
         const word = String(req.params.word);
-        return this.areaService.getFiltredAreas({page, pageSize, user:user.userId, word});
+        return this.areaService.getFiltredAreas({ page, pageSize, user: user.userId, word });
 
     }
 
@@ -84,10 +103,23 @@ export class CaseStudyManagementController {
         const id = BigInt(req.params.id);
         return this.areaService.updateArea(id, body);
     }
-    @Put('/actualizar-estado-area/:id')
-    async updateEstadoArea(@Request() req, @Body() body: any) {
-        const id = BigInt(req.params.id);
-        return this.areaService.updateStateArea(id, body);
+    @Patch('/area/:id/state')
+    async updateEstadoArea(
+        @Param('id') idParam: string,
+        @Body() body: { delete?: boolean; estado?: boolean }
+    ) {
+        const id = BigInt(idParam);
+        const hasDelete = typeof body.delete === 'boolean';
+        const hasEstado = typeof body.estado === 'boolean';
+
+        if (!hasDelete && !hasEstado) {
+            throw new BadRequestException('Debes enviar "delete" o "estado".');
+        }
+        if (hasDelete && hasEstado) {
+            throw new BadRequestException('No puedes enviar "delete" y "estado" a la vez.');
+        }
+
+        return this.areaService.deleteAndRestoreArea(id, body);
     }
 
     //casos de estudio Management
@@ -167,21 +199,24 @@ export class CaseStudyManagementController {
         return this.CasosEstudioService.getAllCasosEstudio({ page, pageSize, user: user.userId });
     }
     @UseGuards(JwtAuthGuard)
-    @Get('/casos-estudio/:page/:pageSize/:word') 
-    async filtredCasosEstudio(@Request() req) { 
+    @Get('/casos-estudio/:page/:pageSize/:word')
+    async filtredCasosEstudio(@Request() req) {
         const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
         const word = String(req.params.word);
 
-        return this.CasosEstudioService.getfiltredCasosEstudio({page, pageSize, user: user.userId,  word});
+        return this.CasosEstudioService.getfiltredCasosEstudio({ page, pageSize, user: user.userId, word });
     }
 
 
     @Put('/actualizar-estado-caso/:id')
-    async updateEstadoCaso(@Request() req, @Body() body: any) {
-        const id = BigInt(req.params.id);
-        return this.CasosEstudioService.updateStateCasoEstudio(id, body);
+    async updateEstadoOBorradoCaso(
+        @Param('id') idParam: string,
+        @Body() body: UpdateCasoStateOrDeleteDto,
+    ) {
+        const id = BigInt(idParam);
+        return this.CasosEstudioService.updateStateOrDeleteCasoEstudio(id, body);
     }
 
     @Put("/casos/:id")

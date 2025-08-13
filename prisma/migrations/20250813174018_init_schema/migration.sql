@@ -37,6 +37,8 @@ CREATE TABLE "Persona" (
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
     "telefono" BIGINT,
+    "delete_at" TIMESTAMPTZ(6),
+    "delete_state" BOOLEAN DEFAULT false,
 
     CONSTRAINT "Persona_pkey" PRIMARY KEY ("Id_Persona")
 );
@@ -47,6 +49,8 @@ CREATE TABLE "Rol" (
     "Nombre" VARCHAR(500),
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
+    "delete_at" TIMESTAMPTZ(6),
+    "delete_state" BOOLEAN DEFAULT false,
 
     CONSTRAINT "Rol_pkey" PRIMARY KEY ("id_Rol")
 );
@@ -89,6 +93,8 @@ CREATE TABLE "Usuario" (
     "Id_Persona" BIGINT NOT NULL,
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
+    "delete_at" TIMESTAMPTZ(6),
+    "delete_state" BOOLEAN DEFAULT false,
 
     CONSTRAINT "Usuario_pkey" PRIMARY KEY ("Id_Usuario")
 );
@@ -114,6 +120,8 @@ CREATE TABLE "area" (
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
     "estado" BOOLEAN,
+    "delete_at" TIMESTAMPTZ(6),
+    "delete_status" BOOLEAN DEFAULT false,
 
     CONSTRAINT "area_pkey" PRIMARY KEY ("id_area")
 );
@@ -137,6 +145,8 @@ CREATE TABLE "carrera" (
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
     "estado" BOOLEAN,
+    "delete_at" TIMESTAMP(6),
+    "delete_status" BOOLEAN DEFAULT false,
 
     CONSTRAINT "carrera_pkey" PRIMARY KEY ("id_carrera")
 );
@@ -151,6 +161,8 @@ CREATE TABLE "casos_de_estudio" (
     "url" TEXT,
     "estado" BOOLEAN,
     "fecha_Subida" DATE,
+    "delete_at" TIMETZ(6),
+    "delete_status" BOOLEAN DEFAULT false,
 
     CONSTRAINT "casos_de_estudio_pkey" PRIMARY KEY ("id_casoEstudio")
 );
@@ -194,6 +206,13 @@ CREATE TABLE "estudiante" (
     "id_Persona" BIGINT,
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
+    "estado" VARCHAR,
+    "turno_inscripcion" VARCHAR,
+    "turno_moda" VARCHAR,
+    "semestre_ingreso" VARCHAR,
+    "semestre_ultimo" VARCHAR,
+    "delete_at" TIMESTAMPTZ(6),
+    "delete_state" BOOLEAN DEFAULT false,
 
     CONSTRAINT "estudiante_pkey" PRIMARY KEY ("id_estudiante")
 );
@@ -206,6 +225,9 @@ CREATE TABLE "estudiantes_materia" (
     "calificacion" DECIMAL,
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
+    "estado" VARCHAR,
+    "Gestion" VARCHAR,
+    "id_horario_materia" BIGINT,
 
     CONSTRAINT "estudiantes_materia_pkey" PRIMARY KEY ("id_estudiante_materia")
 );
@@ -223,13 +245,21 @@ CREATE TABLE "facultad" (
 -- CreateTable
 CREATE TABLE "horario_materia" (
     "id_horario" BIGSERIAL NOT NULL,
-    "horario_inicio" TIME(6),
-    "horario_fin" TIME(6),
-    "dias_semana" VARCHAR,
+    "Modalidad" VARCHAR,
     "id_materia" BIGINT,
     "id_docente" BIGINT,
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
+    "turno" VARCHAR,
+    "gestion" VARCHAR,
+    "modulo_inicio" INTEGER,
+    "grupo" VARCHAR,
+    "BiModular" BOOLEAN,
+    "inscritos" INTEGER,
+    "confirmados" INTEGER,
+    "estado" BOOLEAN,
+    "modulo_fin" INTEGER,
+    "horario" VARCHAR,
 
     CONSTRAINT "horario_materia_pkey" PRIMARY KEY ("id_horario")
 );
@@ -237,9 +267,14 @@ CREATE TABLE "horario_materia" (
 -- CreateTable
 CREATE TABLE "materia" (
     "id_materia" BIGSERIAL NOT NULL,
-    "nombre" BIGINT,
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
+    "cod_materia" BIGINT,
+    "siglas_materia" VARCHAR,
+    "creditos" INTEGER,
+    "horas_totales" INTEGER,
+    "id_tipo" BIGINT,
+    "nombre" VARCHAR,
 
     CONSTRAINT "materia_pkey" PRIMARY KEY ("id_materia")
 );
@@ -282,6 +317,9 @@ CREATE TABLE "tribunal_Docente" (
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
     "estado" BOOLEAN,
+    "nroAgenda" VARCHAR,
+    "delete_at" TIMESTAMP(6),
+    "delete_state" BOOLEAN DEFAULT false,
 
     CONSTRAINT "tribunal_Docente_pkey" PRIMARY KEY ("id_tribunal")
 );
@@ -353,12 +391,64 @@ CREATE TABLE "carrera_Area" (
 );
 
 -- CreateTable
-CREATE TABLE "rol_Carrera" (
-    "Id_Rol_Carrera" BIGSERIAL NOT NULL,
-    "Id_rol" BIGINT,
+CREATE TABLE "materia_carrera" (
+    "id_materiaCarrera" BIGSERIAL NOT NULL,
+    "id_materia" BIGINT,
+    "id_carrera" BIGINT,
+    "semestre" VARCHAR,
+    "numero_pensum" BIGINT,
+
+    CONSTRAINT "materia_carrera_pkey" PRIMARY KEY ("id_materiaCarrera")
+);
+
+-- CreateTable
+CREATE TABLE "materia_preRequisito" (
+    "id_materiaPrerequisito" BIGSERIAL NOT NULL,
+    "id_materia" BIGINT,
+    "id_materia_preRequisito" BIGINT,
+    "total_materia" INTEGER,
+
+    CONSTRAINT "materia_preRequisito_pkey" PRIMARY KEY ("id_materiaPrerequisito")
+);
+
+-- CreateTable
+CREATE TABLE "tipo_materia" (
+    "id_tipo" BIGSERIAL NOT NULL,
+    "nombre" VARCHAR,
+
+    CONSTRAINT "tipo_materia_pkey" PRIMARY KEY ("id_tipo")
+);
+
+-- CreateTable
+CREATE TABLE "equivalencias_materia" (
+    "id_equivalencia" BIGSERIAL NOT NULL,
+    "id_materia_Origen" BIGSERIAL NOT NULL,
+    "id_materia_equivalente" BIGSERIAL NOT NULL,
+
+    CONSTRAINT "equivalencias_materia_pkey" PRIMARY KEY ("id_equivalencia")
+);
+
+-- CreateTable
+CREATE TABLE "usuario_Carrera" (
+    "Id_usuario_carrera" BIGSERIAL NOT NULL,
+    "Id_usuario" BIGINT,
     "Id_carrera" BIGINT,
 
-    CONSTRAINT "rol_Carrera_pkey" PRIMARY KEY ("Id_Rol_Carrera")
+    CONSTRAINT "rol_Carrera_pkey" PRIMARY KEY ("Id_usuario_carrera")
+);
+
+-- CreateTable
+CREATE TABLE "modulo_periodo" (
+    "id_modulo_Periodo" BIGSERIAL NOT NULL,
+    "gestion" VARCHAR,
+    "modulo" VARCHAR,
+    "fecha_Inicio" DATE,
+    "fecha_Fin" DATE,
+    "modalidad" VARCHAR,
+    "created_at " TIMESTAMP(6),
+    "updated_at" TIMESTAMPTZ(6),
+
+    CONSTRAINT "modulo_periodo_pkey" PRIMARY KEY ("id_modulo_Periodo")
 );
 
 -- CreateTable
@@ -377,13 +467,19 @@ CREATE TABLE "whatsapp_sessions" (
 CREATE UNIQUE INDEX "Usuario_Nombre_Usuario_key" ON "Usuario"("Nombre_Usuario");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "uniq_est_mat_gestion" ON "estudiantes_materia"("id_estudiante", "id_materia", "Gestion");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "facultad_nombre_facultad_key" ON "facultad"("nombre_facultad");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "unique_cod_materia" ON "materia"("cod_materia");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "rol_Modulo_Permiso_Id_Rol_Id_Modulo_Id_Permiso_key" ON "rol_Modulo_Permiso"("Id_Rol", "Id_Modulo", "Id_Permiso");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "rol_Carrera_Id_rol_Id_carrera_key" ON "rol_Carrera"("Id_rol", "Id_carrera");
+CREATE UNIQUE INDEX "rol_Carrera_Id_rol_Id_carrera_key" ON "usuario_Carrera"("Id_usuario", "Id_carrera");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "whatsapp_sessions_session_id_key" ON "whatsapp_sessions"("session_id");
@@ -437,6 +533,9 @@ ALTER TABLE "documentos_generados" ADD CONSTRAINT "documentos_generados_id_usuar
 ALTER TABLE "estudiante" ADD CONSTRAINT "estudiante_id_Persona_fkey" FOREIGN KEY ("id_Persona") REFERENCES "Persona"("Id_Persona") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
+ALTER TABLE "estudiantes_materia" ADD CONSTRAINT "estudiante_materia_id_horario_materia_fkey" FOREIGN KEY ("id_horario_materia") REFERENCES "horario_materia"("id_horario") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
 ALTER TABLE "estudiantes_materia" ADD CONSTRAINT "estudiantes_materia_id_estudiante_fkey" FOREIGN KEY ("id_estudiante") REFERENCES "estudiante"("id_estudiante") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
@@ -447,6 +546,9 @@ ALTER TABLE "horario_materia" ADD CONSTRAINT "horario_materia_id_docente_fkey" F
 
 -- AddForeignKey
 ALTER TABLE "horario_materia" ADD CONSTRAINT "horario_materia_id_materia_fkey" FOREIGN KEY ("id_materia") REFERENCES "materia"("id_materia") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "materia" ADD CONSTRAINT "id_tipoMateria" FOREIGN KEY ("id_tipo") REFERENCES "tipo_materia"("id_tipo") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE "tribunal_Docente" ADD CONSTRAINT "tribunal_Docente_Id_TipoTribunal_fkey" FOREIGN KEY ("Id_TipoTribunal") REFERENCES "Tipo_Tribunal"("id_TipoTribunal") ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -488,7 +590,25 @@ ALTER TABLE "carrera_Area" ADD CONSTRAINT "Id_Area" FOREIGN KEY ("Id_Area") REFE
 ALTER TABLE "carrera_Area" ADD CONSTRAINT "Id_Carrera" FOREIGN KEY ("Id_Carrera") REFERENCES "carrera"("id_carrera") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "rol_Carrera" ADD CONSTRAINT "Id_Rol" FOREIGN KEY ("Id_rol") REFERENCES "Rol"("id_Rol") ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE "materia_carrera" ADD CONSTRAINT "id_carrera" FOREIGN KEY ("id_carrera") REFERENCES "carrera"("id_carrera") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "rol_Carrera" ADD CONSTRAINT "id_carrera" FOREIGN KEY ("Id_carrera") REFERENCES "carrera"("id_carrera") ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE "materia_carrera" ADD CONSTRAINT "id_materia" FOREIGN KEY ("id_materia") REFERENCES "materia"("id_materia") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "materia_preRequisito" ADD CONSTRAINT "id_materia" FOREIGN KEY ("id_materia") REFERENCES "materia"("id_materia") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "materia_preRequisito" ADD CONSTRAINT "id_materia_preRequisito" FOREIGN KEY ("id_materia_preRequisito") REFERENCES "materia"("id_materia") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "equivalencias_materia" ADD CONSTRAINT "id_materia_equivalente" FOREIGN KEY ("id_materia_equivalente") REFERENCES "materia"("id_materia") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "equivalencias_materia" ADD CONSTRAINT "id_materia_origen" FOREIGN KEY ("id_materia_Origen") REFERENCES "materia"("id_materia") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "usuario_Carrera" ADD CONSTRAINT "id_carrera" FOREIGN KEY ("Id_carrera") REFERENCES "carrera"("id_carrera") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "usuario_Carrera" ADD CONSTRAINT "id_usaurioCarrera" FOREIGN KEY ("Id_usuario") REFERENCES "Usuario"("Id_Usuario") ON DELETE NO ACTION ON UPDATE NO ACTION;

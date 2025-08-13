@@ -79,7 +79,7 @@ export class UserService {
     async findOneUser(username: string) {
         try {
             const user = await this.prisma.usuario.findFirst({
-                where: { Nombre_Usuario: username }
+                 where: { Nombre_Usuario: username, delete_state: false }
             })
             if (user) return user;
             return null;
@@ -91,7 +91,7 @@ export class UserService {
     async getUserById(id: bigint) {
         try {
             const user = await this.prisma.usuario.findFirst({
-                where: { Id_Usuario: id },
+                where: { Id_Usuario: id, delete_state: false},
                 include: {
                     Persona: true,
                     Usuario_Rol: {
@@ -176,6 +176,7 @@ export class UserService {
             const take = Number(pageSize);
 
             const allUsers = await this.prisma.usuario.findMany({
+                where: { delete_state: false },
                 include: {
                     Persona: {
                         select: {
@@ -392,7 +393,8 @@ export class UserService {
         if (user) return user;
 
         let persona = await this.findPersonaByEmail(email);
-
+        let ususario = await this.prisma.usuario.findFirst({ where: { Id_Persona: persona ? Number(persona.Id_Persona) : -1 } });
+        if (ususario) return ususario;
         if (!persona) {
             persona = await this.prisma.persona.create({
                 data: {
@@ -420,10 +422,58 @@ export class UserService {
             Usuario_Rol: {
                 create: {
                     Id_Rol: rol?.id_Rol ?? null,
-                }}
+                }
+            }
         };
         user = await this.prisma.usuario.create({ data: userData, include: { Persona: true } });
         return user;
+    }
+
+    async softDeleteUsuario(idUsuario: number) {
+        const user = await this.prisma.usuario.findUnique({
+            where: { Id_Usuario: idUsuario },
+            select: { Id_Usuario: true, delete_state: true },
+        });
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+
+        if (user.delete_state) {
+            return { message: 'Usuario ya está eliminado lógicamente', id: idUsuario };
+        }
+
+        await this.prisma.usuario.update({
+            where: { Id_Usuario: idUsuario },
+            data: {
+                delete_state: true,
+                delete_at: new Date(),
+                updated_at: new Date(),
+            },
+        });
+
+        return { message: 'Usuario eliminado lógicamente', id: idUsuario };
+    }
+
+
+    async restoreUsuario(idUsuario: number) {
+        const user = await this.prisma.usuario.findUnique({
+            where: { Id_Usuario: idUsuario },
+            select: { Id_Usuario: true, delete_state: true },
+        });
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+
+        if (!user.delete_state) {
+            return { message: 'Usuario no está eliminado', id: idUsuario };
+        }
+
+        await this.prisma.usuario.update({
+            where: { Id_Usuario: idUsuario },
+            data: {
+                delete_state: false,
+                delete_at: null,
+                updated_at: new Date(),
+            },
+        });
+
+        return { message: 'Usuario restaurado correctamente', id: idUsuario };
     }
 
 }
