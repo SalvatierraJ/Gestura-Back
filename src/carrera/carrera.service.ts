@@ -225,6 +225,7 @@ export class CarreraService {
                 data: {
                     delete_status: true,
                     delete_at: new Date(),
+                    estado: false,
                     updated_at: new Date(),
                 },
             });
@@ -255,6 +256,7 @@ export class CarreraService {
                 data: {
                     delete_status: false,
                     delete_at: null,
+                    estado: true,
                     updated_at: new Date(),
                 },
             });

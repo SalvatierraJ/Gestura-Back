@@ -10,84 +10,166 @@ export class DefensaService {
     ) { }
 
     async generarDefensa(estudiantes: number[] | number, body: any) {
-        console.log("IDs recibidos para sortear defensa:", estudiantes);
-        console.log("body", body);
         const estudiantesIds = Array.isArray(estudiantes) ? estudiantes : [estudiantes];
         const { sorteaArea, sorteaCaso, tipoDefensa } = body;
         const fechaDefensa = new Date(body.fechaDefensa || body.fechaHora);
         const defensasCreadas: any[] = [];
 
+        const shuffle = <T,>(arr: T[]): T[] => {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        };
+
         return await this.prisma.$transaction(async (tx) => {
             const defensasMismaFecha = await tx.defensa.findMany({
-                where: {
-                    fecha_defensa: fechaDefensa,
-                    id_casoEstudio: { not: null }
-                },
+                where: { fecha_defensa: fechaDefensa, id_casoEstudio: { not: null } },
                 select: { id_casoEstudio: true }
             });
             const casosYaAsignados = new Set(defensasMismaFecha.map(d => d.id_casoEstudio?.toString()));
 
-            const tipo = await tx.tipo_Defensa.findFirst({
-                where: { Nombre: tipoDefensa }
-            });
+            const tipo = await tx.tipo_Defensa.findFirst({ where: { Nombre: tipoDefensa } });
             if (!tipo) throw new HttpException("Tipo de defensa no encontrado", 400);
 
             for (const idEstudiante of estudiantesIds) {
                 const estudiante = await tx.estudiante.findUnique({
-                    where: { id_estudiante: Number(idEstudiante) }, // por si llega string
+                    where: { id_estudiante: Number(idEstudiante) },
                     include: { estudiante_Carrera: { include: { carrera: true } } }
                 });
                 if (!estudiante) throw new HttpException("Estudiante no encontrado", 400);
                 if (!estudiante.estudiante_Carrera?.length) throw new Error("Estudiante sin carrera");
 
                 const idCarrera = estudiante.estudiante_Carrera[0].Id_Carrera;
+
+                // Áreas RELACIONADAS y DISPONIBLES (estado = true)
                 const areasRelacionadas = await tx.carrera_Area.findMany({
-                    where: { Id_Carrera: idCarrera },
+                    where: { Id_Carrera: idCarrera, area: { estado: true } },
                     include: { area: true }
                 });
-                if (!areasRelacionadas.length) throw new HttpException("No hay áreas asociadas a la carrera", 400);
-
-                // ------- ÁREA -------------
-                let areaSorteada: number | null = null;
-                let areaNombre: string | null = null;
-                if (sorteaArea) {
-                    const idx = areasRelacionadas.length === 1
-                        ? 0
-                        : Math.floor(Math.random() * areasRelacionadas.length);
-                    areaSorteada = Number(areasRelacionadas[idx].Id_Area);
-                    areaNombre = areasRelacionadas[idx].area?.nombre_area || null;
-                } else {
-                    areaSorteada = body.id_area ?? null;
-                    const areaObj = areasRelacionadas.find(a => a.Id_Area === areaSorteada);
-                    areaNombre = areaObj?.area?.nombre_area || null;
+                if (!areasRelacionadas.length) {
+                    throw new HttpException("No hay áreas disponibles (estado true) asociadas a la carrera", 400);
                 }
 
+                const allAreaIdsAvail = areasRelacionadas.map(a => Number(a.Id_Area));
+
+                // ----------------- SELECCIÓN DE ÁREA -----------------
+                let areaSorteada: number | null = null;
+                let areaNombre: string | null = null;
+
+                if (sorteaCaso) {
+                    // Caso se elige automáticamente → el área puede cambiar durante la búsqueda
+                    if (sorteaArea) {
+                        const idx = allAreaIdsAvail.length === 1 ? 0 : Math.floor(Math.random() * allAreaIdsAvail.length);
+                        areaSorteada = allAreaIdsAvail[idx];
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                        areaNombre = ao?.area?.nombre_area || null;
+                    } else {
+                        const preferida = body.id_area ? Number(body.id_area) : null;
+                        if (preferida && allAreaIdsAvail.includes(preferida)) {
+                            areaSorteada = preferida;
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === preferida);
+                            areaNombre = ao?.area?.nombre_area || null;
+                        } else {
+                            // si el id_area recibido no está disponible, se ignora
+                            areaSorteada = null;
+                            areaNombre = null;
+                        }
+                    }
+                } else {
+                    // Caso manual → validar que el área manual (si viene) esté disponible (estado true)
+                    if (!sorteaArea) {
+                        const manualArea = body.id_area ? Number(body.id_area) : null;
+                        if (manualArea && allAreaIdsAvail.includes(manualArea)) {
+                            areaSorteada = manualArea;
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === manualArea);
+                            areaNombre = ao?.area?.nombre_area || null;
+                        } else if (manualArea) {
+                            throw new HttpException("El área indicada no está disponible (estado false) o no pertenece a la carrera.", 400);
+                        }
+                    } else {
+                        // sorteaArea true pero sorteaCaso false (raro): sorteamos área disponible
+                        const idx = allAreaIdsAvail.length === 1 ? 0 : Math.floor(Math.random() * allAreaIdsAvail.length);
+                        areaSorteada = allAreaIdsAvail[idx];
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                        areaNombre = ao?.area?.nombre_area || null;
+                    }
+                }
+
+                // ----------------- SELECCIÓN DE CASO -----------------
                 let casoSorteado: number | null = null;
                 let casoNombre: string | null = null;
-                if (sorteaCaso && areaSorteada) {
-                    const casos = await tx.casos_de_estudio.findMany({
-                        where: { id_area: areaSorteada, estado: true }
-                    });
-                    const casosDisponibles = casos.filter(
-                        c => !casosYaAsignados.has(c.id_casoEstudio.toString())
-                    );
-                    if (!casosDisponibles.length) {
-                        throw new HttpException(`No hay casos disponibles para el estudiante ${idEstudiante} en el área y fecha indicada.`, 400);
+
+                if (sorteaCaso) {
+                    // Lista de áreas candidatas (todas disponibles = estado true)
+                    let candidatas: number[];
+                    if (areaSorteada) {
+                        const resto = allAreaIdsAvail.filter(id => id !== Number(areaSorteada));
+                        candidatas = [Number(areaSorteada), ...shuffle(resto)];
+                    } else {
+                        candidatas = shuffle(allAreaIdsAvail);
                     }
-                    const idx = casosDisponibles.length === 1
-                        ? 0
-                        : Math.floor(Math.random() * casosDisponibles.length);
-                    const caso = casosDisponibles[idx];
-                    casoSorteado = Number(caso.id_casoEstudio);
-                    casoNombre = caso.Nombre_Archivo || null;
-                    casosYaAsignados.add(caso.id_casoEstudio.toString());
-                } else if (!sorteaCaso) {
-                    casoSorteado = body.id_casoEstudio ?? null;
-                    if (casoSorteado) {
-                        const caso = await tx.casos_de_estudio.findUnique({
-                            where: { id_casoEstudio: casoSorteado }
+
+                    let seleccionado = false;
+                    for (const idArea of candidatas) {
+                        // Casos DISPONIBLES (estado = true) en esa área
+                        const casos = await tx.casos_de_estudio.findMany({
+                            where: { id_area: idArea, estado: true },
+                            select: { id_casoEstudio: true, Nombre_Archivo: true }
                         });
-                        casoNombre = caso?.Nombre_Archivo || null;
+
+                        const disponibles = casos.filter(c => !casosYaAsignados.has(c.id_casoEstudio.toString()));
+                        if (disponibles.length > 0) {
+                            const idx = disponibles.length === 1 ? 0 : Math.floor(Math.random() * disponibles.length);
+                            const caso = disponibles[idx];
+
+                            casoSorteado = Number(caso.id_casoEstudio);
+                            casoNombre = caso.Nombre_Archivo || null;
+
+                            areaSorteada = idArea;
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
+                            areaNombre = ao?.area?.nombre_area || null;
+
+                            casosYaAsignados.add(caso.id_casoEstudio.toString());
+                            seleccionado = true;
+                            break;
+                        }
+                    }
+
+                    if (!seleccionado) {
+                        throw new HttpException(
+                            `No hay casos disponibles (estado true) para el estudiante ${idEstudiante} en las áreas relacionadas y fecha indicada.`,
+                            400
+                        );
+                    }
+                } else {
+                    // Caso MANUAL: validar disponibilidad y no asignación
+                    const casoManual = body.id_casoEstudio ? Number(body.id_casoEstudio) : null;
+                    if (casoManual) {
+                        const caso = await tx.casos_de_estudio.findUnique({
+                            where: { id_casoEstudio: casoManual }
+                        });
+                        if (!caso || !caso.estado) {
+                            throw new HttpException("El caso indicado no está disponible (estado false) o no existe.", 400);
+                        }
+                        if (casosYaAsignados.has(casoManual.toString())) {
+                            throw new HttpException("El caso indicado ya fue asignado en esa fecha.", 400);
+                        }
+                        // Si no se indicó área, usar la del caso (y validar que esa área esté disponible para la carrera)
+                        if (!areaSorteada) {
+                            if (!caso.id_area || !allAreaIdsAvail.includes(Number(caso.id_area))) {
+                                throw new HttpException("El área del caso no está disponible para la carrera.", 400);
+                            }
+                            areaSorteada = Number(caso.id_area);
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                            areaNombre = ao?.area?.nombre_area || null;
+                        }
+
+                        casoSorteado = casoManual;
+                        casoNombre = caso.Nombre_Archivo || null;
+                        casosYaAsignados.add(casoManual.toString());
                     }
                 }
 
@@ -99,12 +181,12 @@ export class DefensaService {
                         fecha_defensa: fechaDefensa
                     }
                 });
-                if (defensaExistente) throw new HttpException(`Ya existe una defensa para este estudiante en esa fecha y tipo.`, 400);
+                if (defensaExistente) {
+                    throw new HttpException(`Ya existe una defensa para este estudiante en esa fecha y tipo.`, 400);
+                }
 
                 let estadoDefensa = "ASIGNADO";
-                if (!areaSorteada || !casoSorteado) {
-                    estadoDefensa = "PENDIENTE";
-                }
+                if (!areaSorteada || !casoSorteado) estadoDefensa = "PENDIENTE";
 
                 const defensa = await tx.defensa.create({
                     data: {
@@ -116,7 +198,6 @@ export class DefensaService {
                         estado: estadoDefensa,
                         created_at: new Date(),
                         updated_at: new Date(),
-                        // id_encargados_carrera: body.id_encargados_carrera
                     }
                 });
 
@@ -133,34 +214,27 @@ export class DefensaService {
 
             return defensasCreadas;
         }).then(async (defensasCreadas) => {
-            // Enviar notificaciones fuera de la transacción para no bloquear
             for (const defensa of defensasCreadas) {
-                // Enviar notificación por WhatsApp (sin bloquear)
                 this.enviarNotificacionDefensa(Number(defensa.estudiante), {
                     area: defensa.area,
                     caso: defensa.caso,
                     fecha: defensa.fecha,
                     tipo_defensa: defensa.tipo_defensa,
                     estado: defensa.estado
-                }).catch(error => {
-                    console.error(`Error al procesar notificación WhatsApp para estudiante ${defensa.estudiante}:`, error);
-                });
+                }).catch(err => console.error(`Error WhatsApp estudiante ${defensa.estudiante}:`, err));
 
-                // Enviar notificación por Email (sin bloquear)
                 this.enviarNotificacionEmailDefensa(Number(defensa.estudiante), {
                     area: defensa.area,
                     caso: defensa.caso,
                     fecha: defensa.fecha,
                     tipo_defensa: defensa.tipo_defensa,
                     estado: defensa.estado
-                }).catch(error => {
-                    console.error(`Error al procesar notificación Email para estudiante ${defensa.estudiante}:`, error);
-                });
+                }).catch(err => console.error(`Error Email estudiante ${defensa.estudiante}:`, err));
             }
-
             return defensasCreadas;
         });
     }
+
 
     async getAllDefensasDetalle({ page, pageSize, tipoDefensaNombre, user }: { page: number, pageSize: number, tipoDefensaNombre?: string, user: any }) {
         try {
@@ -512,28 +586,29 @@ export class DefensaService {
 
     private async enviarNotificacionDefensa(idEstudiante: number, defensaInfo: any) {
         try {
-            // Obtener información del estudiante y su teléfono
+            // 1) Datos del estudiante
             const estudiante = await this.prisma.estudiante.findUnique({
                 where: { id_estudiante: idEstudiante },
-                include: {
-                    Persona: true
-                }
+                include: { Persona: true }
             });
 
-            if (!estudiante || !estudiante.Persona || !estudiante.Persona.telefono) {
+            if (!estudiante?.Persona?.telefono) {
                 console.log(`No se pudo enviar notificación: estudiante sin teléfono (ID: ${idEstudiante})`);
                 return;
             }
 
+            // 2) URL del caso (si existiera)
             const linkcaso = await this.prisma.defensa.findFirst({
                 where: { id_estudiante: idEstudiante },
                 select: { casos_de_estudio: { select: { url: true } } }
             });
 
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
-            const telefono = estudiante.Persona.telefono.toString();
+            const telefono = String(estudiante.Persona.telefono);
 
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
+            // 3) Fecha y hora (formato es-BO + zona horaria La Paz)
+            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
+                timeZone: 'America/La_Paz',
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
@@ -542,72 +617,79 @@ export class DefensaService {
                 minute: '2-digit'
             });
 
-            let mensaje = `¡Hola ${nombreCompleto}! 👋\n\n`;
+            // 4) Mensaje formal (sin emojis)
+            let mensaje = `Estimado/a ${nombreCompleto}:\n\n`;
 
             if (defensaInfo.estado === 'ASIGNADO') {
-                mensaje += `✅ *Tu defensa ha sido programada exitosamente*\n\n`;
-                mensaje += `📅 *Fecha y hora:* ${fechaFormateada}\n`;
-                mensaje += `📚 *Tipo de defensa:* ${defensaInfo.tipo_defensa}\n`;
-                if (defensaInfo.area) {
-                    mensaje += `🎯 *Área asignada:* ${defensaInfo.area}\n`;
-                }
-                if (defensaInfo.caso) {
-                    mensaje += `📋 *Caso de estudio:* ${defensaInfo.caso}\n`;
-                }
+                mensaje += `Le informamos que su defensa ha sido programada.\n\n`;
+                mensaje += `— Fecha y hora: ${fechaFormateada}\n`;
+                mensaje += `— Tipo de defensa: ${defensaInfo.tipo_defensa}\n`;
+                if (defensaInfo.area) mensaje += `— Área asignada: ${defensaInfo.area}\n`;
+                if (defensaInfo.caso) mensaje += `— Caso de estudio: ${defensaInfo.caso}\n`;
                 if (linkcaso) {
-                    mensaje += `🔗 *Enlace al caso:* ${linkcaso.casos_de_estudio?.url || 'No disponible'}\n`;
+                    mensaje += `— Enlace al caso: ${linkcaso.casos_de_estudio?.url || 'No disponible'}\n`;
                 }
-                mensaje += `\n¡Te deseamos mucho éxito en tu defensa! 🍀`;
+                mensaje += `\nPor favor, verifique la información y procure presentarse con antelación.`;
             } else if (defensaInfo.estado === 'PENDIENTE') {
-                mensaje += `⏳ *Tu defensa ha sido registrada*\n\n`;
-                mensaje += `📅 *Fecha y hora:* ${fechaFormateada}\n`;
-                mensaje += `📚 *Tipo de defensa:* ${defensaInfo.tipo_defensa}\n`;
-                mensaje += `\n⚠️ *Nota:* Aún faltan algunos detalles por asignar. Te notificaremos cuando esté todo listo.`;
+                mensaje += `Se ha registrado su defensa.\n\n`;
+                mensaje += `— Fecha y hora: ${fechaFormateada}\n`;
+                mensaje += `— Tipo de defensa: ${defensaInfo.tipo_defensa}\n`;
+                mensaje += `\nNota: algunos detalles se encuentran en proceso de asignación. Le notificaremos cuando estén confirmados.`;
+            } else {
+                // Estado desconocido (fallback formal)
+                mensaje += `Se registró un movimiento relacionado con su defensa.\n\n`;
+                mensaje += `— Fecha y hora: ${fechaFormateada}\n`;
+                mensaje += `— Tipo de defensa: ${defensaInfo.tipo_defensa}\n`;
             }
 
-            // Enviar mensaje con timeout para evitar bloqueos largos
+            mensaje += `\n\nAtentamente,\nCoordinación Académica`;
+
+            // 5) Envío con timeout
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendMessage(telefono, mensaje),
                 new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
-                )
+                ),
             ]);
 
             if (envioExitoso) {
-                console.log(`✅ Notificación enviada exitosamente al estudiante ${nombreCompleto} (${telefono})`);
+                console.log(`Notificación enviada exitosamente a ${nombreCompleto} (${telefono})`);
             } else {
-                console.log(`❌ No se pudo enviar la notificación al estudiante ${nombreCompleto} (${telefono})`);
+                console.log(`No se pudo enviar la notificación a ${nombreCompleto} (${telefono})`);
             }
-
         } catch (error) {
-            console.error(`❌ Error al enviar notificación al estudiante ${idEstudiante}:`, error.message || error);
-            // Intentar registrar en base de datos para reenvío posterior (opcional)
+            console.error(`❌ Error al enviar notificación al estudiante ${idEstudiante}:`, error?.message || error);
+            // Opcional: registrar para reintento posterior
             // await this.registrarNotificacionFallida(idEstudiante, defensaInfo);
         }
     }
 
+
     private async enviarNotificacionEmailDefensa(idEstudiante: number, defensaInfo: any) {
         try {
-            // Obtener información del estudiante y su email
+            // 1) Datos del estudiante
             const estudiante = await this.prisma.estudiante.findUnique({
                 where: { id_estudiante: idEstudiante },
-                include: {
-                    Persona: true
-                }
+                include: { Persona: true }
             });
 
-            if (!estudiante || !estudiante.Persona || !estudiante.Persona.Correo) {
+            if (!estudiante?.Persona?.Correo) {
                 console.log(`No se pudo enviar email: estudiante sin email (ID: ${idEstudiante})`);
                 return;
             }
 
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
-            const email = estudiante.Persona.Correo;
+            const email = String(estudiante.Persona.Correo);
+
+            // 2) URL del caso (si existiera)
             const linkcaso = await this.prisma.defensa.findFirst({
                 where: { id_estudiante: idEstudiante },
                 select: { casos_de_estudio: { select: { url: true } } }
             });
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
+
+            // 3) Fecha/hora en zona de Bolivia
+            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
+                timeZone: 'America/La_Paz',
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
@@ -616,73 +698,165 @@ export class DefensaService {
                 minute: '2-digit'
             });
 
+            // 4) Paleta institucional
+            const colorRojo = '#B71C1C'; // rojo institucional
+            const colorNegro = '#000000';
+            const colorTexto = '#111111';
+            const colorBorde = '#e6e6e6';
+
+            // 5) Asunto + Template (formal, sin emojis)
             let asunto = '';
-            let mensaje = '';
-            let templateData: any = {};
+            let title = '';
+            let messageHTML = '';
+
+            const headerHTML = `
+      <div style="background:#ffffff;padding:24px 24px 8px 24px;font-family:Segoe UI,Roboto,Arial,sans-serif;color:${colorTexto};">
+        <div style="border-top:6px solid ${colorRojo};"></div>
+        <h1 style="margin:16px 0 4px 0;color:${colorNegro};font-size:20px;line-height:1.3;">
+          Universidad Tecnologica Privada de Santa Cruz
+        </h1>
+    `;
+
+            const footerHTML = `
+        <hr style="border:none;border-top:1px solid ${colorBorde};margin:20px 0;" />
+        <p style="margin:0;color:${colorTexto};font-size:12px;line-height:1.5;">
+          Este mensaje ha sido enviado por la Coordinación Académica.
+        </p>
+      </div>
+    `;
 
             if (defensaInfo.estado === 'ASIGNADO') {
-                asunto = `✅ Defensa Programada - ${defensaInfo.tipo_defensa}`;
-                mensaje = `Tu defensa ha sido programada exitosamente para el ${fechaFormateada}.`;
+                asunto = `Programación de defensa – ${defensaInfo.tipo_defensa}`;
+                title = 'Programación de defensa';
 
-                templateData = {
-                    title: '🎓 Defensa Programada Exitosamente',
-                    message: `
-                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
-                        
-                        <p>Te informamos que tu defensa ha sido programada con los siguientes detalles:</p>
-                        
-                        <ul>
-                            <li><strong>📅 Fecha y hora:</strong> ${fechaFormateada}</li>
-                            <li><strong>📚 Tipo de defensa:</strong> ${defensaInfo.tipo_defensa}</li>
-                            ${defensaInfo.area ? `<li><strong>🎯 Área asignada:</strong> ${defensaInfo.area}</li>` : ''}
-                            ${defensaInfo.caso ? `<li><strong>📋 Caso de estudio:</strong> ${defensaInfo.caso}</li>` : ''}
-                            ${linkcaso ? `<li><strong> Enlace al caso:</strong> <a href="${linkcaso.casos_de_estudio?.url || '#'}">${linkcaso.casos_de_estudio?.url || 'No disponible'}</a></li>` : ''}
-                        </ul>
-                        
-                        <p><strong>Recomendaciones importantes:</strong></p>
-                        <ul>
-                            <li>Llega 15 minutos antes de la hora programada</li>
-                            <li>Revisa todo el material relacionado con tu área y caso de estudio</li>
-                            <li>Prepárate mental y académicamente para la defensa</li>
-                        </ul>
-                        
-                        <p>¡Te deseamos mucho éxito en tu defensa! 🍀</p>
-                        
-                        <p>Saludos cordiales,<br>
-                        <strong>Sistema Gestura - UTEPSA</strong></p>
-                    `
-                };
+                messageHTML = `
+        ${headerHTML}
+        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
+        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
+        <p style="margin:0 0 12px 0;">
+          Le informamos que su defensa ha sido programada con los siguientes detalles:
+        </p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
+          <tr>
+            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
+            <td style="padding:6px 0;">${fechaFormateada}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
+            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
+          </tr>
+          ${defensaInfo.area ? `
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Área asignada</td>
+            <td style="padding:6px 0;">${defensaInfo.area}</td>
+          </tr>` : ''}
+          ${defensaInfo.caso ? `
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Caso de estudio</td>
+            <td style="padding:6px 0;">${defensaInfo.caso}</td>
+          </tr>` : ''}
+          ${linkcaso?.casos_de_estudio?.url ? `
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Enlace al caso</td>
+            <td style="padding:6px 0;word-break:break-all;">
+              <a href="${linkcaso.casos_de_estudio.url}" style="color:${colorRojo};text-decoration:none;">
+                ${linkcaso.casos_de_estudio.url}
+              </a>
+            </td>
+          </tr>` : ''}
+        </table>
+
+        <div style="background:#fff;border:1px solid ${colorBorde};border-left:4px solid ${colorRojo};padding:12px;border-radius:4px;margin:12px 0;">
+          <p style="margin:0 0 8px 0;"><strong>Indicaciones:</strong></p>
+          <ul style="margin:0 0 0 18px;padding:0;">
+            <li>Preséntese con al menos 15 minutos de antelación.</li>
+            <li>Verifique su material y documentación.</li>
+            <li>Considere las instrucciones específicas de la coordinación.</li>
+          </ul>
+        </div>
+
+        <p style="margin:16px 0 0 0;">
+          Atentamente,<br/>
+          <strong>Coordinación Académica</strong>
+        </p>
+        ${footerHTML}
+      `;
             } else if (defensaInfo.estado === 'PENDIENTE') {
-                asunto = `⏳ Defensa Registrada - Pendiente de Asignación`;
-                mensaje = `Tu defensa ha sido registrada pero aún faltan algunos detalles por asignar.`;
+                asunto = 'Defensa registrada – pendiente de asignación';
+                title = 'Defensa registrada';
 
-                templateData = {
-                    title: '📝 Defensa Registrada - Pendiente',
-                    message: `
-                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
-                        
-                        <p>Te informamos que tu defensa ha sido registrada en el sistema:</p>
-                        
-                        <ul>
-                            <li><strong>📅 Fecha programada:</strong> ${fechaFormateada}</li>
-                            <li><strong>📚 Tipo de defensa:</strong> ${defensaInfo.tipo_defensa}</li>
-                            <li><strong>📊 Estado:</strong> Pendiente de asignación completa</li>
-                        </ul>
-                        
-                        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                            <p><strong>⚠️ Nota importante:</strong></p>
-                            <p>Aún faltan algunos detalles por asignar (área específica o caso de estudio). Te notificaremos por este mismo medio cuando todo esté completamente asignado.</p>
-                        </div>
-                        
-                        <p>Mantente atento a futuras comunicaciones.</p>
-                        
-                        <p>Saludos cordiales,<br>
-                        <strong>Sistema Gestura - UTEPSA</strong></p>
-                    `
-                };
+                messageHTML = `
+        ${headerHTML}
+        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
+        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
+        <p style="margin:0 0 12px 0;">
+          Su defensa ha sido registrada con los siguientes datos:
+        </p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
+          <tr>
+            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
+            <td style="padding:6px 0;">${fechaFormateada}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
+            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Estado</td>
+            <td style="padding:6px 0;">Pendiente de asignación completa</td>
+          </tr>
+        </table>
+
+        <div style="background:#fff;border:1px solid ${colorBorde};border-left:4px solid ${colorRojo};padding:12px;border-radius:4px;margin:12px 0;">
+          <p style="margin:0;">
+            Algunos detalles (como el área específica o el caso de estudio) están en proceso de asignación.
+            Le notificaremos por este mismo medio cuando se encuentren confirmados.
+          </p>
+        </div>
+
+        <p style="margin:16px 0 0 0;">
+          Atentamente,<br/>
+          <strong>Coordinación Académica</strong>
+        </p>
+        ${footerHTML}
+      `;
+            } else {
+                // Fallback formal
+                asunto = 'Actualización sobre su defensa';
+                title = 'Actualización de registro';
+                messageHTML = `
+        ${headerHTML}
+        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
+        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
+        <p style="margin:0 0 12px 0;">
+          Se registró una actualización relacionada con su defensa.
+        </p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
+          <tr>
+            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
+            <td style="padding:6px 0;">${fechaFormateada}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
+            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
+          </tr>
+        </table>
+        <p style="margin:16px 0 0 0;">
+          Atentamente,<br/>
+          <strong>Coordinación Académica</strong>
+        </p>
+        ${footerHTML}
+      `;
             }
 
-            // Enviar email con timeout para evitar bloqueos largos
+            const templateData = {
+                title,          // si tu plantilla usa el título aparte
+                message: messageHTML
+            };
+
+            // 6) Envío con timeout
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
                 new Promise<boolean>((_, reject) =>
@@ -691,15 +865,15 @@ export class DefensaService {
             ]);
 
             if (envioExitoso) {
-                console.log(`✅ Email enviado exitosamente al estudiante ${nombreCompleto} (${email})`);
+                console.log(`Email enviado exitosamente a ${nombreCompleto} (${email})`);
             } else {
-                console.log(`❌ No se pudo enviar el email al estudiante ${nombreCompleto} (${email})`);
+                console.log(`No se pudo enviar el email a ${nombreCompleto} (${email})`);
             }
-
         } catch (error) {
-            console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, error.message || error);
+            console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, error?.message || error);
         }
     }
+
 
     private async enviarNotificacionCalificacion(defensa: any, nota: number, estado: string) {
         try {

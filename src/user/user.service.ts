@@ -393,7 +393,7 @@ export class UserService {
         if (user) return user;
 
         let persona = await this.findPersonaByEmail(email);
-        let ususario = await this.prisma.usuario.findFirst({ where: { Id_Persona: persona ? Number(persona.Id_Persona) : -1 } });
+        let ususario = await this.prisma.usuario.findFirst({ where: { Id_Persona: persona ? Number(persona.Id_Persona) : -1 }, include: { Persona: true } });
         if (ususario) return ususario;
         if (!persona) {
             persona = await this.prisma.persona.create({

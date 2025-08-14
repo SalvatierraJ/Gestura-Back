@@ -92,6 +92,7 @@ export class EstudianteService {
             const nuevoEstudiante = await this.prisma.estudiante.create({
               data: {
                 nroRegistro: String(estudiante.numeroregistro),
+                estado:'EGRESADO',
                 Persona: {
                   create: {
                     Nombre: estudiante.nombre,

@@ -3,7 +3,7 @@ import { PrismaService } from 'src/database/prisma.services';
 
 @Injectable()
 export class AreaService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   // ========= CREATE =========
   async createArea(body: any) {
@@ -254,6 +254,7 @@ export class AreaService {
         where: { id_area: id },
         data: {
           delete_status: true,
+          estado: false,
           delete_at: new Date(),
           updated_at: new Date(),
         },
@@ -285,6 +286,8 @@ export class AreaService {
         data: {
           delete_status: false,
           delete_at: null,
+          estado: true,
+
           updated_at: new Date(),
         },
       });

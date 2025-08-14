@@ -261,6 +261,7 @@ export class CasosEstudioService {
         where: { id_casoEstudio: id },
         data: {
           delete_status: true,
+          estado: false, 
           delete_at: new Date(),
           updated_at: new Date(),
         },
@@ -281,6 +282,7 @@ export class CasosEstudioService {
           id_casoEstudio: { not: id },
           delete_status: { not: true },
           delete_at: null,
+          
           id_area: c.id_area,
           Nombre_Archivo: { equals: c.Nombre_Archivo, mode: 'insensitive' },
         },
@@ -297,6 +299,7 @@ export class CasosEstudioService {
         data: {
           delete_status: false,
           delete_at: null,
+          estado: true, 
           updated_at: new Date(),
         },
       });
