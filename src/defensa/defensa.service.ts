@@ -170,7 +170,7 @@ export class DefensaService {
             const usuario = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: user },
                 include: {
-                    usuario_Carrera:true
+                    usuario_Carrera: true
                 }
             });
             if (!usuario) throw new Error("Usuario no encontrado");
@@ -225,7 +225,7 @@ export class DefensaService {
             const total = await this.prisma.defensa.count({
                 where: {
                     id_estudiante: { in: estudianteIds },
-                     ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
+                    ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
                 }
             });
 
@@ -235,7 +235,7 @@ export class DefensaService {
                 take,
                 where: {
                     id_estudiante: { in: estudianteIds },
-                     ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
+                    ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
                 },
                 include: {
                     estudiante: { include: { Persona: true } },
@@ -305,7 +305,7 @@ export class DefensaService {
             throw new Error(`Error fetching defensas: ${error.message}`);
         }
     }
-     async getDefensasFiltradas({ page, pageSize, user, tipoDefensaNombre, word }: { page: number, pageSize: number, user: bigint, tipoDefensaNombre?: string, word?: string }) {
+    async getDefensasFiltradas({ page, pageSize, user, tipoDefensaNombre, word }: { page: number, pageSize: number, user: bigint, tipoDefensaNombre?: string, word?: string }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
@@ -354,7 +354,7 @@ export class DefensaService {
                     return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
                 }
             }
-            
+
             // Condición opcional: Filtrar por palabra clave si se proporciona
             if (word && word.trim() !== '') {
                 whereClause.AND.push({
@@ -427,7 +427,7 @@ export class DefensaService {
                             nombre: `${p.Nombre} ${p.Apellido1} ${p.Apellido2 || ""}`.trim(),
                         };
                     }).filter((j): j is { id_tribunal: bigint; nombre: string; } => j !== null);
-                
+
                 let fechaDefensa: string | null = null;
                 let horaDefensa: string | null = null;
                 if (defensa.fecha_defensa) {
@@ -525,13 +525,14 @@ export class DefensaService {
                 return;
             }
 
-            const linkcaso = await this.prisma.casos_de_estudio.findUnique({
-                where: { id_casoEstudio: defensaInfo.id_casoEstudio }
+            const linkcaso = await this.prisma.defensa.findFirst({
+                where: { id_estudiante: idEstudiante },
+                select: { casos_de_estudio: { select: { url: true } } }
             });
 
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
             const telefono = estudiante.Persona.telefono.toString();
-            
+
             const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
@@ -542,7 +543,7 @@ export class DefensaService {
             });
 
             let mensaje = `¡Hola ${nombreCompleto}! 👋\n\n`;
-            
+
             if (defensaInfo.estado === 'ASIGNADO') {
                 mensaje += `✅ *Tu defensa ha sido programada exitosamente*\n\n`;
                 mensaje += `📅 *Fecha y hora:* ${fechaFormateada}\n`;
@@ -554,7 +555,7 @@ export class DefensaService {
                     mensaje += `📋 *Caso de estudio:* ${defensaInfo.caso}\n`;
                 }
                 if (linkcaso) {
-                    mensaje += `🔗 *Enlace al caso:* ${linkcaso.url || 'No disponible'}\n`;
+                    mensaje += `🔗 *Enlace al caso:* ${linkcaso.casos_de_estudio?.url || 'No disponible'}\n`;
                 }
                 mensaje += `\n¡Te deseamos mucho éxito en tu defensa! 🍀`;
             } else if (defensaInfo.estado === 'PENDIENTE') {
@@ -567,7 +568,7 @@ export class DefensaService {
             // Enviar mensaje con timeout para evitar bloqueos largos
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendMessage(telefono, mensaje),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
                 )
             ]);
@@ -577,7 +578,7 @@ export class DefensaService {
             } else {
                 console.log(`❌ No se pudo enviar la notificación al estudiante ${nombreCompleto} (${telefono})`);
             }
-            
+
         } catch (error) {
             console.error(`❌ Error al enviar notificación al estudiante ${idEstudiante}:`, error.message || error);
             // Intentar registrar en base de datos para reenvío posterior (opcional)
@@ -602,7 +603,10 @@ export class DefensaService {
 
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
             const email = estudiante.Persona.Correo;
-            
+            const linkcaso = await this.prisma.defensa.findFirst({
+                where: { id_estudiante: idEstudiante },
+                select: { casos_de_estudio: { select: { url: true } } }
+            });
             const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
@@ -619,7 +623,7 @@ export class DefensaService {
             if (defensaInfo.estado === 'ASIGNADO') {
                 asunto = `✅ Defensa Programada - ${defensaInfo.tipo_defensa}`;
                 mensaje = `Tu defensa ha sido programada exitosamente para el ${fechaFormateada}.`;
-                
+
                 templateData = {
                     title: '🎓 Defensa Programada Exitosamente',
                     message: `
@@ -632,6 +636,7 @@ export class DefensaService {
                             <li><strong>📚 Tipo de defensa:</strong> ${defensaInfo.tipo_defensa}</li>
                             ${defensaInfo.area ? `<li><strong>🎯 Área asignada:</strong> ${defensaInfo.area}</li>` : ''}
                             ${defensaInfo.caso ? `<li><strong>📋 Caso de estudio:</strong> ${defensaInfo.caso}</li>` : ''}
+                            ${linkcaso ? `<li><strong> Enlace al caso:</strong> <a href="${linkcaso.casos_de_estudio?.url || '#'}">${linkcaso.casos_de_estudio?.url || 'No disponible'}</a></li>` : ''}
                         </ul>
                         
                         <p><strong>Recomendaciones importantes:</strong></p>
@@ -650,7 +655,7 @@ export class DefensaService {
             } else if (defensaInfo.estado === 'PENDIENTE') {
                 asunto = `⏳ Defensa Registrada - Pendiente de Asignación`;
                 mensaje = `Tu defensa ha sido registrada pero aún faltan algunos detalles por asignar.`;
-                
+
                 templateData = {
                     title: '📝 Defensa Registrada - Pendiente',
                     message: `
@@ -680,7 +685,7 @@ export class DefensaService {
             // Enviar email con timeout para evitar bloqueos largos
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar email')), 30000)
                 )
             ]);
@@ -690,7 +695,7 @@ export class DefensaService {
             } else {
                 console.log(`❌ No se pudo enviar el email al estudiante ${nombreCompleto} (${email})`);
             }
-            
+
         } catch (error) {
             console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, error.message || error);
         }
@@ -705,7 +710,7 @@ export class DefensaService {
 
             const nombreCompleto = `${defensa.estudiante.Persona.Nombre} ${defensa.estudiante.Persona.Apellido1} ${defensa.estudiante.Persona.Apellido2 || ''}`.trim();
             const telefono = defensa.estudiante.Persona.telefono.toString();
-            
+
             const fechaFormateada = new Date(defensa.fecha_defensa).toLocaleDateString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
@@ -714,7 +719,7 @@ export class DefensaService {
             });
 
             let mensaje = `¡Hola ${nombreCompleto}! 👋\n\n`;
-            
+
             if (estado === 'APROBADO') {
                 mensaje += `🎉 *¡FELICIDADES! Has APROBADO tu defensa* 🎉\n\n`;
                 mensaje += `✅ *Calificación obtenida:* ${nota}/100\n`;
@@ -735,7 +740,7 @@ export class DefensaService {
 
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendMessage(telefono, mensaje),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
                 )
             ]);
@@ -745,7 +750,7 @@ export class DefensaService {
             } else {
                 console.log(`❌ No se pudo enviar la notificación de calificación por WhatsApp al estudiante ${nombreCompleto}`);
             }
-            
+
         } catch (error) {
             console.error(`❌ Error al enviar notificación de calificación por WhatsApp:`, error.message || error);
         }
@@ -760,7 +765,7 @@ export class DefensaService {
 
             const nombreCompleto = `${defensa.estudiante.Persona.Nombre} ${defensa.estudiante.Persona.Apellido1} ${defensa.estudiante.Persona.Apellido2 || ''}`.trim();
             const email = defensa.estudiante.Persona.Correo;
-            
+
             const fechaFormateada = new Date(defensa.fecha_defensa).toLocaleDateString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
@@ -773,7 +778,7 @@ export class DefensaService {
 
             if (estado === 'APROBADO') {
                 asunto = `🎉 ¡FELICIDADES! Defensa Aprobada - Calificación: ${nota}/100`;
-                
+
                 templateData = {
                     title: '🎉 ¡DEFENSA APROBADA!',
                     message: `
@@ -808,7 +813,7 @@ export class DefensaService {
                 };
             } else {
                 asunto = `📋 Resultado de Defensa - Calificación: ${nota}/100`;
-                
+
                 templateData = {
                     title: '📋 Resultado de tu Defensa',
                     message: `
@@ -847,7 +852,7 @@ export class DefensaService {
 
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar email')), 30000)
                 )
             ]);
@@ -857,7 +862,7 @@ export class DefensaService {
             } else {
                 console.log(`❌ No se pudo enviar el email de calificación al estudiante ${nombreCompleto} (${email})`);
             }
-            
+
         } catch (error) {
             console.error(`❌ Error al enviar email de calificación:`, error.message || error);
         }
