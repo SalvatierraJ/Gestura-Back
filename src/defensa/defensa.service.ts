@@ -525,6 +525,10 @@ export class DefensaService {
                 return;
             }
 
+            const linkcaso = await this.prisma.casos_de_estudio.findUnique({
+                where: { id_casoEstudio: defensaInfo.id_casoEstudio }
+            });
+
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
             const telefono = estudiante.Persona.telefono.toString();
             
@@ -548,6 +552,9 @@ export class DefensaService {
                 }
                 if (defensaInfo.caso) {
                     mensaje += `📋 *Caso de estudio:* ${defensaInfo.caso}\n`;
+                }
+                if (linkcaso) {
+                    mensaje += `🔗 *Enlace al caso:* ${linkcaso.url || 'No disponible'}\n`;
                 }
                 mensaje += `\n¡Te deseamos mucho éxito en tu defensa! 🍀`;
             } else if (defensaInfo.estado === 'PENDIENTE') {
