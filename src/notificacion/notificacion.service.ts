@@ -5,8 +5,7 @@ import * as QRCode from 'qrcode';
 import * as nodemailer from 'nodemailer';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
-
-const { Client, LocalAuth } = require('whatsapp-web.js');
+import { Client, RemoteAuth } from 'whatsapp-web.js';
 
 // Enum para esta   dos de sesión
 export enum WhatsAppSessionState {
@@ -30,11 +29,13 @@ export class NotificacionService {
     private currentQRCode: string | null = null;
     private currentQRImage: string | null = null; // Base64 de la imagen QR
     private emailTransporter: nodemailer.Transporter;
+    private store: DatabaseAuthStrategy;
+
 
     constructor(private prisma: PrismaService, @InjectQueue('whatsappQueue') private whatsappQueue: Queue) {
         this.logger.log('Servicio de notificación de WhatsApp instanciado.');
         this.authStrategy = new DatabaseAuthStrategy(this.prisma, 'whatsapp-main');
-        
+
         // Configurar el transporter de email
         this.emailTransporter = nodemailer.createTransport({
             service: 'gmail',
@@ -43,6 +44,7 @@ export class NotificacionService {
                 pass: process.env.GMAIL_APP_PASSWORD || ''
             }
         });
+        this.store = new DatabaseAuthStrategy(this.prisma, 'whatsapp-main');
     }
 
     async initialize() {
@@ -59,9 +61,11 @@ export class NotificacionService {
             this.logger.log('Iniciando el bot de WhatsApp...');
 
             this.client = new Client({
-                authStrategy: new LocalAuth({
+                authStrategy: new RemoteAuth({
                     clientId: 'whatsapp-main',
-                    dataPath: './.wwebjs_auth'
+                    dataPath: './.wwebjs_auth',
+                     store: this.store,                   
+                    backupSyncIntervalMs: 300000,
                 }),
                 puppeteer: {
                     headless: true,
@@ -102,13 +106,11 @@ export class NotificacionService {
             this.client.on('ready', () => {
                 this.currentState = WhatsAppSessionState.READY;
                 this.ready = true;
-                // No limpiar el QR inmediatamente, permitir que el frontend lo obtenga
-                // Se limpiará después de un tiempo o manualmente
                 setTimeout(() => {
                     this.currentQRCode = null;
                     this.currentQRImage = null;
                     this.logger.log('🧹 QR code limpiado después de conexión exitosa');
-                }, 10000); // 10 segundos para que el frontend pueda obtenerlo
+                }, 10000);
                 this.logger.log('🎉 ¡El cliente está listo y conectado a WhatsApp!');
                 resolve();
             });
@@ -205,7 +207,6 @@ export class NotificacionService {
         }
     }
 
-    // Método para forzar reinicialización (útil para reset)
     async forceRestart() {
         try {
             if (this.client) {
@@ -250,9 +251,9 @@ export class NotificacionService {
             return true;
         } catch (err) {
             this.logger.error(`Error al enviar el mensaje a ${number}, lo encolamos:`, err);
-            await this.whatsappQueue.add('retry-whatsapp', {number, text}, {
+            await this.whatsappQueue.add('retry-whatsapp', { number, text }, {
                 attempts: 9999,
-                backoff: 60000, 
+                backoff: 60000,
                 removeOnComplete: true,
                 removeOnFail: false
             })
@@ -349,7 +350,7 @@ export class NotificacionService {
                     <title>${templateData.title}</title>
                     <style>
                         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-                        .header { background-color: #007bff; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+                        .header { background-color: #007bffff; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
                         .content { background-color: #f8f9fa; padding: 30px; border-radius: 0 0 5px 5px; }
                         .button { display: inline-block; background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
                         .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
@@ -361,9 +362,9 @@ export class NotificacionService {
                     </div>
                     <div class="content">
                         <p>${templateData.message}</p>
-                        ${templateData.buttonText && templateData.buttonUrl ? 
-                            `<a href="${templateData.buttonUrl}" class="button">${templateData.buttonText}</a>` : ''
-                        }
+                        ${templateData.buttonText && templateData.buttonUrl ?
+                    `<a href="${templateData.buttonUrl}" class="button">${templateData.buttonText}</a>` : ''
+                }
                     </div>
                     <div class="footer">
                         <p>Este es un email automático del sistema Gestura.</p>
