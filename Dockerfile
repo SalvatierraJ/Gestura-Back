@@ -1,12 +1,27 @@
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim AS builder
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+
+COPY . .
+
+RUN npx prisma generate
+
+RUN npm run build
+
+FROM node:22-bookworm-slim AS runner
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     NODE_ENV=production \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     PUPPETEER_SKIP_DOWNLOAD=true
 
-
+# Instalar Chromium y librerías requeridas por Puppeteer
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     ca-certificates \
@@ -46,14 +61,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY package*.json ./
-
 RUN npm install --omit=dev
 
-
-COPY . .
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
 
 RUN chown -R node:node /app
 USER node
 
-
-CMD ["npm", "run", "start:prod"]
+CMD ["node", "dist/main.js"]
