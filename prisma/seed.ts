@@ -139,7 +139,7 @@ async function main() {
     const usuarioAdmin = await prisma.usuario.create({
         data: {
             Nombre_Usuario: "admin",
-            Password: hashedPassword, // ¡En producción usa hash!
+            Password: hashedPassword, 
             Id_Persona: personaAdmin.Id_Persona,
         }
     });
