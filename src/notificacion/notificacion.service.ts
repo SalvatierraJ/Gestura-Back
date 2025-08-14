@@ -34,7 +34,7 @@ export class NotificacionService {
     constructor(private prisma: PrismaService, @InjectQueue('whatsappQueue') private whatsappQueue: Queue) {
         this.logger.log('Servicio de notificación de WhatsApp instanciado.');
         this.authStrategy = new DatabaseAuthStrategy(this.prisma, 'whatsapp-main');
-        
+
         // Configurar el transporter de email
         this.emailTransporter = nodemailer.createTransport({
             service: 'gmail',
@@ -58,14 +58,14 @@ export class NotificacionService {
         this.initializationPromise = new Promise<void>((resolve, reject) => {
             this.logger.log('Iniciando el bot de WhatsApp...');
 
-            // Usar LocalAuth como alternativa más estable por ahora
             this.client = new Client({
                 authStrategy: new LocalAuth({
                     clientId: 'whatsapp-main',
                     dataPath: './.wwebjs_auth'
                 }),
                 puppeteer: {
-                    headless: true,
+                    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium', 
+                    headless: 'new', 
                     args: [
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
@@ -251,9 +251,9 @@ export class NotificacionService {
             return true;
         } catch (err) {
             this.logger.error(`Error al enviar el mensaje a ${number}, lo encolamos:`, err);
-            await this.whatsappQueue.add('retry-whatsapp', {number, text}, {
+            await this.whatsappQueue.add('retry-whatsapp', { number, text }, {
                 attempts: 9999,
-                backoff: 60000, 
+                backoff: 60000,
                 removeOnComplete: true,
                 removeOnFail: false
             })
@@ -362,9 +362,9 @@ export class NotificacionService {
                     </div>
                     <div class="content">
                         <p>${templateData.message}</p>
-                        ${templateData.buttonText && templateData.buttonUrl ? 
-                            `<a href="${templateData.buttonUrl}" class="button">${templateData.buttonText}</a>` : ''
-                        }
+                        ${templateData.buttonText && templateData.buttonUrl ?
+                    `<a href="${templateData.buttonUrl}" class="button">${templateData.buttonText}</a>` : ''
+                }
                     </div>
                     <div class="footer">
                         <p>Este es un email automático del sistema Gestura.</p>
