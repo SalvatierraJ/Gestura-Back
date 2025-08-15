@@ -25,18 +25,58 @@ export class DefensaService {
         };
 
         return await this.prisma.$transaction(async (tx) => {
+            // Casos ya usados en la fecha (prohibido repetir en la misma fecha)
             const defensasMismaFecha = await tx.defensa.findMany({
                 where: { fecha_defensa: fechaDefensa, id_casoEstudio: { not: null } },
                 select: { id_casoEstudio: true }
             });
-            const casosYaAsignados = new Set(defensasMismaFecha.map(d => d.id_casoEstudio?.toString()));
+            const casosYaAsignadosEnFecha = new Set(defensasMismaFecha.map(d => d.id_casoEstudio!.toString()));
+
+            // Conteo histórico de usos por caso (para no superar 2)
+            const usosHistoricos = await tx.defensa.groupBy({
+                by: ['id_casoEstudio'],
+                _count: { id_casoEstudio: true },
+                where: { id_casoEstudio: { not: null } }
+            });
+            const totalUsosCaso = new Map<string, number>();
+            for (const row of usosHistoricos) {
+                if (row.id_casoEstudio != null) {
+                    totalUsosCaso.set(row.id_casoEstudio.toString(), row._count.id_casoEstudio);
+                }
+            }
+
+            // Helper: elegir un caso en un área cumpliendo restricciones
+            const pickCasoEnArea = async (idArea: number) => {
+                const casos = await tx.casos_de_estudio.findMany({
+                    where: { id_area: idArea, estado: true },
+                    select: { id_casoEstudio: true, Nombre_Archivo: true }
+                });
+
+                // Filtrar por: no usado en la fecha y uso total < 2
+                const candidatos = casos.filter(c => {
+                    const idStr = c.id_casoEstudio.toString();
+                    const usadosFecha = casosYaAsignadosEnFecha.has(idStr);
+                    const usosTotales = totalUsosCaso.get(idStr) ?? 0;
+                    return !usadosFecha && usosTotales < 2;
+                });
+
+                if (!candidatos.length) return null;
+                const idx = candidatos.length === 1 ? 0 : Math.floor(Math.random() * candidatos.length);
+                const elegido = candidatos[idx];
+                return {
+                    id: Number(elegido.id_casoEstudio),
+                    nombre: elegido.Nombre_Archivo || null,
+                };
+            };
 
             const tipo = await tx.tipo_Defensa.findFirst({ where: { Nombre: tipoDefensa } });
             if (!tipo) throw new HttpException("Tipo de defensa no encontrado", 400);
 
-            for (const idEstudiante of estudiantesIds) {
+            for (const idEstudianteRaw of estudiantesIds) {
+                const idEstudiante = Number(idEstudianteRaw);
+
                 const estudiante = await tx.estudiante.findUnique({
-                    where: { id_estudiante: Number(idEstudiante) },
+                    where: { id_estudiante: idEstudiante },
                     include: { estudiante_Carrera: { include: { carrera: true } } }
                 });
                 if (!estudiante) throw new HttpException("Estudiante no encontrado", 400);
@@ -44,7 +84,7 @@ export class DefensaService {
 
                 const idCarrera = estudiante.estudiante_Carrera[0].Id_Carrera;
 
-                // Áreas RELACIONADAS y DISPONIBLES (estado = true)
+                // Áreas relacionadas DISPONIBLES
                 const areasRelacionadas = await tx.carrera_Area.findMany({
                     where: { Id_Carrera: idCarrera, area: { estado: true } },
                     include: { area: true }
@@ -52,58 +92,254 @@ export class DefensaService {
                 if (!areasRelacionadas.length) {
                     throw new HttpException("No hay áreas disponibles (estado true) asociadas a la carrera", 400);
                 }
-
                 const allAreaIdsAvail = areasRelacionadas.map(a => Number(a.Id_Area));
 
-                // ----------------- SELECCIÓN DE ÁREA -----------------
-                let areaSorteada: number | null = null;
+                // ¿Tiene defensa PENDIENTE (misma tipología) con algo por asignar?
+                const pendiente = await tx.defensa.findFirst({
+                    where: {
+                        id_estudiante: idEstudiante,
+                        id_tipo_defensa: tipo.id_TipoDefensa,
+                        estado: 'PENDIENTE',
+                        OR: [{ id_area: null }, { id_casoEstudio: null }],
+                    },
+                    select: {
+                        id_defensa: true,
+                        id_area: true,
+                        id_casoEstudio: true,
+                    }
+                });
+
+                // Variables comunes de salida
+                let areaFinal: number | null = null;
                 let areaNombre: string | null = null;
+                let casoFinal: number | null = null;
+                let casoNombre: string | null = null;
+
+                // ------------------ RELLENAR DEFENSA PENDIENTE ------------------
+                if (pendiente) {
+                    // Caso 1: faltan área y caso
+                    if (!pendiente.id_area && !pendiente.id_casoEstudio) {
+                        // Elegir área candidata
+                        let candidatas = [...allAreaIdsAvail];
+                        // Si el caller envía un área preferida válida, la probamos primero
+                        const preferida = body.id_area ? Number(body.id_area) : null;
+                        if (preferida && allAreaIdsAvail.includes(preferida)) {
+                            candidatas = [preferida, ...shuffle(allAreaIdsAvail.filter(a => a !== preferida))];
+                        } else {
+                            candidatas = shuffle(candidatas);
+                        }
+
+                        // Recorremos áreas hasta hallar un caso válido
+                        let asignado = false;
+                        for (const idArea of candidatas) {
+                            const pick = await pickCasoEnArea(idArea);
+                            if (pick) {
+                                areaFinal = idArea;
+                                // nombre área
+                                const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
+                                areaNombre = ao?.area?.nombre_area || null;
+
+                                casoFinal = pick.id;
+                                casoNombre = pick.nombre;
+
+                                // Marcar uso para esta fecha y en total
+                                const casoStr = String(casoFinal);
+                                casosYaAsignadosEnFecha.add(casoStr);
+                                totalUsosCaso.set(casoStr, (totalUsosCaso.get(casoStr) ?? 0) + 1);
+
+                                // Actualizar defensa existente
+                                const updated = await tx.defensa.update({
+                                    where: { id_defensa: pendiente.id_defensa },
+                                    data: {
+                                        fecha_defensa: fechaDefensa,
+                                        id_area: areaFinal,
+                                        id_casoEstudio: casoFinal,
+                                        estado: 'ASIGNADO',
+                                        updated_at: new Date(),
+                                    }
+                                });
+
+                                defensasCreadas.push({
+                                    id_defensa: updated.id_defensa,
+                                    estudiante: idEstudiante,
+                                    area: areaNombre,
+                                    caso: casoNombre,
+                                    fecha: updated.fecha_defensa,
+                                    estado: updated.estado,
+                                    tipo_defensa: tipoDefensa
+                                });
+
+                                asignado = true;
+                                break;
+                            }
+                        }
+
+                        if (!asignado) {
+                            throw new HttpException(
+                                `No hay casos disponibles (estado true, sin repetir fecha y con tope < 2 usos) para el estudiante ${idEstudiante}.`,
+                                400
+                            );
+                        }
+
+                        // Pasamos al siguiente estudiante (ya actualizamos)
+                        continue;
+                    }
+
+                    // Caso 2: ya tiene área, falta caso → sortear solo caso en esa área
+                    if (pendiente.id_area && !pendiente.id_casoEstudio) {
+                        const idArea = Number(pendiente.id_area);
+                        // Verificamos que el área siga disponible para la carrera
+                        if (!allAreaIdsAvail.includes(idArea)) {
+                            throw new HttpException(
+                                `El área ya asignada en la defensa pendiente no está disponible para la carrera (o estado=false).`,
+                                400
+                            );
+                        }
+
+                        const pick = await pickCasoEnArea(idArea);
+                        if (!pick) {
+                            throw new HttpException(
+                                `No hay casos disponibles en el área indicada (estado true, sin repetir fecha y con tope < 2 usos).`,
+                                400
+                            );
+                        }
+
+                        areaFinal = idArea;
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
+                        areaNombre = ao?.area?.nombre_area || null;
+
+                        casoFinal = pick.id;
+                        casoNombre = pick.nombre;
+
+                        const casoStr = String(casoFinal);
+                        casosYaAsignadosEnFecha.add(casoStr);
+                        totalUsosCaso.set(casoStr, (totalUsosCaso.get(casoStr) ?? 0) + 1);
+
+                        const updated = await tx.defensa.update({
+                            where: { id_defensa: pendiente.id_defensa },
+                            data: {
+                                fecha_defensa: fechaDefensa,
+                                id_casoEstudio: casoFinal,
+                                estado: 'ASIGNADO',
+                                updated_at: new Date(),
+                            }
+                        });
+
+                        defensasCreadas.push({
+                            id_defensa: updated.id_defensa,
+                            estudiante: idEstudiante,
+                            area: areaNombre,
+                            caso: casoNombre,
+                            fecha: updated.fecha_defensa,
+                            estado: updated.estado,
+                            tipo_defensa: tipoDefensa
+                        });
+
+                        continue;
+                    }
+
+                    // Caso raro: tiene caso pero no área → usar área del caso si es válida
+                    if (!pendiente.id_area && pendiente.id_casoEstudio) {
+                        const caso = await tx.casos_de_estudio.findUnique({
+                            where: { id_casoEstudio: Number(pendiente.id_casoEstudio) },
+                            select: { id_area: true, estado: true, Nombre_Archivo: true }
+                        });
+                        if (!caso || !caso.estado || !caso.id_area || !allAreaIdsAvail.includes(Number(caso.id_area))) {
+                            throw new HttpException(
+                                `La defensa pendiente tiene caso asignado pero el área del caso no es válida/disponible.`,
+                                400
+                            );
+                        }
+                        const casoStr = String(pendiente.id_casoEstudio);
+                        // Validar restricciones del caso
+                        const usosTotales = totalUsosCaso.get(casoStr) ?? 0;
+                        if (usosTotales >= 2) {
+                            throw new HttpException(`El caso ya alcanzó el máximo de 2 usos.`, 400);
+                        }
+                        if (casosYaAsignadosEnFecha.has(casoStr)) {
+                            throw new HttpException(`El caso ya está asignado a otro estudiante en esa fecha.`, 400);
+                        }
+
+                        areaFinal = Number(caso.id_area);
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaFinal);
+                        areaNombre = ao?.area?.nombre_area || null;
+
+                        casoFinal = Number(pendiente.id_casoEstudio);
+                        casoNombre = caso.Nombre_Archivo || null;
+
+                        casosYaAsignadosEnFecha.add(casoStr);
+                        totalUsosCaso.set(casoStr, usosTotales + 1);
+
+                        const updated = await tx.defensa.update({
+                            where: { id_defensa: pendiente.id_defensa },
+                            data: {
+                                fecha_defensa: fechaDefensa,
+                                id_area: areaFinal,
+                                estado: 'ASIGNADO',
+                                updated_at: new Date(),
+                            }
+                        });
+
+                        defensasCreadas.push({
+                            id_defensa: updated.id_defensa,
+                            estudiante: idEstudiante,
+                            area: areaNombre,
+                            caso: casoNombre,
+                            fecha: updated.fecha_defensa,
+                            estado: updated.estado,
+                            tipo_defensa: tipoDefensa
+                        });
+
+                        continue;
+                    }
+                }
+
+                // ------------------ FLUJO NORMAL (crear nueva) ------------------
+                // Selección de área (si aplica)
+                let areaSorteada: number | null = null;
+                let areaNombreSel: string | null = null;
 
                 if (sorteaCaso) {
-                    // Caso se elige automáticamente → el área puede cambiar durante la búsqueda
                     if (sorteaArea) {
                         const idx = allAreaIdsAvail.length === 1 ? 0 : Math.floor(Math.random() * allAreaIdsAvail.length);
                         areaSorteada = allAreaIdsAvail[idx];
                         const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
-                        areaNombre = ao?.area?.nombre_area || null;
+                        areaNombreSel = ao?.area?.nombre_area || null;
                     } else {
                         const preferida = body.id_area ? Number(body.id_area) : null;
                         if (preferida && allAreaIdsAvail.includes(preferida)) {
                             areaSorteada = preferida;
-                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === preferida);
-                            areaNombre = ao?.area?.nombre_area || null;
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                            areaNombreSel = ao?.area?.nombre_area || null;
                         } else {
-                            // si el id_area recibido no está disponible, se ignora
                             areaSorteada = null;
-                            areaNombre = null;
+                            areaNombreSel = null;
                         }
                     }
                 } else {
-                    // Caso manual → validar que el área manual (si viene) esté disponible (estado true)
+                    // Caso manual: validar área si viene
                     if (!sorteaArea) {
                         const manualArea = body.id_area ? Number(body.id_area) : null;
                         if (manualArea && allAreaIdsAvail.includes(manualArea)) {
                             areaSorteada = manualArea;
                             const ao = areasRelacionadas.find(a => Number(a.Id_Area) === manualArea);
-                            areaNombre = ao?.area?.nombre_area || null;
+                            areaNombreSel = ao?.area?.nombre_area || null;
                         } else if (manualArea) {
                             throw new HttpException("El área indicada no está disponible (estado false) o no pertenece a la carrera.", 400);
                         }
                     } else {
-                        // sorteaArea true pero sorteaCaso false (raro): sorteamos área disponible
                         const idx = allAreaIdsAvail.length === 1 ? 0 : Math.floor(Math.random() * allAreaIdsAvail.length);
                         areaSorteada = allAreaIdsAvail[idx];
                         const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
-                        areaNombre = ao?.area?.nombre_area || null;
+                        areaNombreSel = ao?.area?.nombre_area || null;
                     }
                 }
 
-                // ----------------- SELECCIÓN DE CASO -----------------
+                // Selección de caso
                 let casoSorteado: number | null = null;
-                let casoNombre: string | null = null;
+                let casoNombreSel: string | null = null;
 
                 if (sorteaCaso) {
-                    // Lista de áreas candidatas (todas disponibles = estado true)
                     let candidatas: number[];
                     if (areaSorteada) {
                         const resto = allAreaIdsAvail.filter(id => id !== Number(areaSorteada));
@@ -114,25 +350,19 @@ export class DefensaService {
 
                     let seleccionado = false;
                     for (const idArea of candidatas) {
-                        // Casos DISPONIBLES (estado = true) en esa área
-                        const casos = await tx.casos_de_estudio.findMany({
-                            where: { id_area: idArea, estado: true },
-                            select: { id_casoEstudio: true, Nombre_Archivo: true }
-                        });
-
-                        const disponibles = casos.filter(c => !casosYaAsignados.has(c.id_casoEstudio.toString()));
-                        if (disponibles.length > 0) {
-                            const idx = disponibles.length === 1 ? 0 : Math.floor(Math.random() * disponibles.length);
-                            const caso = disponibles[idx];
-
-                            casoSorteado = Number(caso.id_casoEstudio);
-                            casoNombre = caso.Nombre_Archivo || null;
-
+                        const pick = await pickCasoEnArea(idArea);
+                        if (pick) {
+                            casoSorteado = pick.id;
+                            casoNombreSel = pick.nombre;
                             areaSorteada = idArea;
-                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
-                            areaNombre = ao?.area?.nombre_area || null;
 
-                            casosYaAsignados.add(caso.id_casoEstudio.toString());
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
+                            areaNombreSel = ao?.area?.nombre_area || null;
+
+                            const casoStr = String(casoSorteado);
+                            casosYaAsignadosEnFecha.add(casoStr);
+                            totalUsosCaso.set(casoStr, (totalUsosCaso.get(casoStr) ?? 0) + 1);
+
                             seleccionado = true;
                             break;
                         }
@@ -140,12 +370,12 @@ export class DefensaService {
 
                     if (!seleccionado) {
                         throw new HttpException(
-                            `No hay casos disponibles (estado true) para el estudiante ${idEstudiante} en las áreas relacionadas y fecha indicada.`,
+                            `No hay casos disponibles (estado true, sin repetir fecha y con tope < 2 usos).`,
                             400
                         );
                     }
                 } else {
-                    // Caso MANUAL: validar disponibilidad y no asignación
+                    // Caso manual: validar restricciones
                     const casoManual = body.id_casoEstudio ? Number(body.id_casoEstudio) : null;
                     if (casoManual) {
                         const caso = await tx.casos_de_estudio.findUnique({
@@ -154,29 +384,36 @@ export class DefensaService {
                         if (!caso || !caso.estado) {
                             throw new HttpException("El caso indicado no está disponible (estado false) o no existe.", 400);
                         }
-                        if (casosYaAsignados.has(casoManual.toString())) {
+                        const casoStr = String(casoManual);
+                        const usosTotales = totalUsosCaso.get(casoStr) ?? 0;
+                        if (usosTotales >= 2) {
+                            throw new HttpException("El caso indicado ya alcanzó el máximo de 2 usos.", 400);
+                        }
+                        if (casosYaAsignadosEnFecha.has(casoStr)) {
                             throw new HttpException("El caso indicado ya fue asignado en esa fecha.", 400);
                         }
-                        // Si no se indicó área, usar la del caso (y validar que esa área esté disponible para la carrera)
+                        // Si no se indicó área, usar la del caso (y validar que esté disponible)
                         if (!areaSorteada) {
                             if (!caso.id_area || !allAreaIdsAvail.includes(Number(caso.id_area))) {
                                 throw new HttpException("El área del caso no está disponible para la carrera.", 400);
                             }
                             areaSorteada = Number(caso.id_area);
                             const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
-                            areaNombre = ao?.area?.nombre_area || null;
+                            areaNombreSel = ao?.area?.nombre_area || null;
                         }
-
                         casoSorteado = casoManual;
-                        casoNombre = caso.Nombre_Archivo || null;
-                        casosYaAsignados.add(casoManual.toString());
+                        casoNombreSel = caso.Nombre_Archivo || null;
+
+                        // Marcar restricciones
+                        casosYaAsignadosEnFecha.add(casoStr);
+                        totalUsosCaso.set(casoStr, usosTotales + 1);
                     }
                 }
 
-                // -------- DEFENSA --------------
+                // Validación: no crear duplicado exacto (mismo estudiante, tipo, fecha)
                 const defensaExistente = await tx.defensa.findFirst({
                     where: {
-                        id_estudiante: Number(idEstudiante),
+                        id_estudiante: idEstudiante,
                         id_tipo_defensa: tipo.id_TipoDefensa,
                         fecha_defensa: fechaDefensa
                     }
@@ -191,7 +428,7 @@ export class DefensaService {
                 const defensa = await tx.defensa.create({
                     data: {
                         fecha_defensa: fechaDefensa,
-                        id_estudiante: Number(idEstudiante),
+                        id_estudiante: idEstudiante,
                         id_tipo_defensa: tipo.id_TipoDefensa,
                         id_casoEstudio: casoSorteado,
                         id_area: areaSorteada,
@@ -204,8 +441,8 @@ export class DefensaService {
                 defensasCreadas.push({
                     id_defensa: defensa.id_defensa,
                     estudiante: idEstudiante,
-                    area: areaNombre,
-                    caso: casoNombre,
+                    area: areaNombreSel,
+                    caso: casoNombreSel,
                     fecha: defensa.fecha_defensa,
                     estado: defensa.estado,
                     tipo_defensa: tipoDefensa
@@ -214,6 +451,7 @@ export class DefensaService {
 
             return defensasCreadas;
         }).then(async (defensasCreadas) => {
+            // Notificaciones fuera de la transacción
             for (const defensa of defensasCreadas) {
                 this.enviarNotificacionDefensa(Number(defensa.estudiante), {
                     area: defensa.area,
@@ -234,6 +472,7 @@ export class DefensaService {
             return defensasCreadas;
         });
     }
+
 
 
     async getAllDefensasDetalle({ page, pageSize, tipoDefensaNombre, user }: { page: number, pageSize: number, tipoDefensaNombre?: string, user: any }) {

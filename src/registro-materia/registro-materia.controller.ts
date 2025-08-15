@@ -48,7 +48,6 @@ export class RegistroMateriaController {
         };
     }
 
-    //esta funcion registra las materias de los estudiantes cursadas de forma masiva es decir mas de uno, tambien les crea usuarios y contrasenas 
     @Post('/estudiantes/registro-materias')
     async crearEstudianteCompleto(@Body() body: any) {
         return await this.materiaService.crearEstudiantesLote(body);
