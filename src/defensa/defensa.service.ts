@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import { NotificacionService } from 'src/notificacion/notificacion.service';
 
@@ -1282,6 +1282,52 @@ export class DefensaService {
     }
 
 
+
+    async eliminarDefensa(
+        idDefensa: number | string,
+        opts: { force?: boolean } = {},
+    ) {
+        const id = Number(idDefensa);
+        if (!Number.isFinite(id)) {
+            throw new BadRequestException('id_defensa inválido');
+        }
+
+        return this.prisma.$transaction(async (tx) => {
+            const defensa = await tx.defensa.findUnique({
+                where: { id_defensa: id },
+                select: { id_defensa: true, estado: true },
+            });
+
+            if (!defensa) {
+                throw new NotFoundException('Defensa no encontrada');
+            }
+
+            if (!opts.force && (defensa.estado === 'APROBADO' || defensa.estado === 'REPROBADO')) {
+                throw new BadRequestException(
+                    `No se puede eliminar una defensa en estado ${defensa.estado}. Usa ?force=true si realmente quieres borrarla.`,
+                );
+            }
+
+            const [delTribunal, delArchivos] = await Promise.all([
+                tx.tribunal_defensa.deleteMany({ where: { id_defensa: id } }),
+                tx.archivos_defensa.deleteMany({ where: { id_defensa: id } }),
+            ]);
+
+            const delDefensa = await tx.defensa.delete({
+                where: { id_defensa: id },
+            });
+
+            return {
+                ok: true,
+                id_defensa: delDefensa.id_defensa,
+                estado_prev: defensa.estado,
+                deleted_children: {
+                    tribunal_defensa: delTribunal.count,
+                    archivos_defensa: delArchivos.count,
+                },
+            };
+        });
+    }
 
 
 }

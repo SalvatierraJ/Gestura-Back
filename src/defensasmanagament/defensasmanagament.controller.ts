@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { DefensaService } from 'src/defensa/defensa.service';
 import { JuradosService } from 'src/jurados/jurados.service';
@@ -25,7 +25,7 @@ export class DefensasmanagamentController {
     }
 
 
-     @UseGuards(JwtAuthGuard)
+    @UseGuards(JwtAuthGuard)
     @Get('/detalles/:page/:pageSize/:tipoDefensa/:word')
     async getDefensasDetallePaginadoFiltred(
         @Request() req?: any
@@ -72,6 +72,14 @@ export class DefensasmanagamentController {
     @Post("/aula/:id_defensa")
     async setAula(@Param("id_defensa") id_defensa: number, @Body() body: { aula: string }) {
         return this.defensaService.agregarAulaDefensa(id_defensa, body.aula);
+    }
+
+    @Delete(':id')
+    async remove(
+        @Param('id') id: string,
+        @Query('force') force?: string,
+    ) {
+        return this.defensaService.eliminarDefensa(id, { force: force === 'false' });
     }
 
 
