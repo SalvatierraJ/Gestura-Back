@@ -380,6 +380,7 @@ export class TribunalDocenteService {
               delete_state: true,
               delete_at: new Date(),
               updated_at: new Date(),
+              estado: false, 
               Persona:{
                 update: {
                   updated_at: new Date(),
@@ -398,6 +399,7 @@ export class TribunalDocenteService {
             data: {
               delete_state: false,
               delete_at: null,
+              estado: true,
               updated_at: new Date(),
                 Persona: {
                     update: {

@@ -20,7 +20,7 @@ export class AuthService {
     private userServices: UserService,
     private jwtService: JwtService,
     private prisma: PrismaService,
-  ) {}
+  ) { }
 
   async validateUser(body: LoginUserDto) {
     try {
@@ -106,19 +106,19 @@ export class AuthService {
         requiere: requiereCompletar,
         detalles: requiereCompletar
           ? {
-              camposFaltantes,
-              esEstudiante,
-              mensaje:
-                'Por favor, revisa y completa tu información personal antes de continuar.',
-              datosActuales: {
-                nombre: persona?.Nombre || '',
-                apellido1: persona?.Apellido1 || '',
-                apellido2: persona?.Apellido2 || '',
-                correo: persona?.Correo || '',
-                ci: persona?.CI || '',
-                telefono: persona?.telefono?.toString() || '',
-              },
-            }
+            camposFaltantes,
+            esEstudiante,
+            mensaje:
+              'Por favor, revisa y completa tu información personal antes de continuar.',
+            datosActuales: {
+              nombre: persona?.Nombre || '',
+              apellido1: persona?.Apellido1 || '',
+              apellido2: persona?.Apellido2 || '',
+              correo: persona?.Correo || '',
+              ci: persona?.CI || '',
+              telefono: persona?.telefono?.toString() || '',
+            },
+          }
           : null,
       };
     } catch (error) {
@@ -184,7 +184,7 @@ export class AuthService {
   }
 
 
-     async loginOrRegisterOauthUser(id_token: string) {
+  async loginOrRegisterOauthUser(id_token: string) {
     const decoded: any = jwt.decode(id_token);
     const { email, name } = decoded;
     if (!email) throw new Error("No se recibió correo desde Auth0");
@@ -193,8 +193,8 @@ export class AuthService {
 
     const payloadToken = { username: user.Nombre_Usuario, sub: Number(user.Id_Usuario) };
     return {
-        access_token: this.jwtService.sign(payloadToken),
-        user,
+      access_token: this.jwtService.sign(payloadToken),
+      user,
     };
-}
+  }
 }

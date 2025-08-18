@@ -1,150 +1,111 @@
 import { PrismaService } from '../database/prisma.services';
+import { Prisma } from '@prisma/client';
+import { promises as fs } from 'fs';
 
 export class DatabaseAuthStrategy {
-    public dataPath: string;
-    private prisma: PrismaService;
-    private sessionId: string;
+  public dataPath: string;
+  private prisma: PrismaService;
+  private sessionId: string;
 
-    constructor(prisma: PrismaService, sessionId: string = 'default') {
-        this.prisma = prisma;
-        this.sessionId = sessionId;
-        this.dataPath = `session-${sessionId}`;
-    }
+  constructor(prisma: PrismaService, sessionId: string = 'default') {
+    this.prisma = prisma;
+    this.sessionId = sessionId;
+    this.dataPath = `session-${sessionId}`;
+  }
 
-    async setup() {
-        console.log(`🔧 Configurando estrategia de autenticación en base de datos (ID: ${this.sessionId})`);
-    }
 
-    async beforeBrowserInitialized() {
-        console.log(`📱 Preparando inicialización del navegador para sesión: ${this.sessionId}`);
-    }
+  async setup() {
+    console.log(`🔧 Configurando estrategia (RemoteAuth Store) — ID: ${this.sessionId}`);
+  }
+  async beforeBrowserInitialized() {
+    console.log(`📱 Preparando navegador para sesión: ${this.sessionId}`);
+  }
+  async afterBrowserInitialized() {
+    console.log(`✅ Navegador inicializado para sesión: ${this.sessionId}`);
+  }
 
-    async afterBrowserInitialized() {
-        console.log(`✅ Navegador inicializado para sesión: ${this.sessionId}`);
-    }
+  
+  async getAuthEventPayload() {
+    console.log(`ℹ️ (MD) getAuthEventPayload no usa JSON de sesión — ID: ${this.sessionId}`);
+    return null;
+  }
 
-    async getAuthEventPayload() {
-        try {
-            const sessionData = await this.loadSession();
-            if (sessionData) {
-                console.log(`📦 Cargando datos de sesión desde base de datos (ID: ${this.sessionId})`);
-                return sessionData;
-            }
-            console.log(`🆕 No hay datos de sesión previa (ID: ${this.sessionId})`);
-            return null;
-        } catch (error) {
-            console.error('❌ Error al cargar payload de autenticación:', error);
-            return null;
-        }
-    }
+  async afterAuthenticationSuccess() {
+    console.log(`🎉 Autenticación exitosa — ID: ${this.sessionId}`);
+  
+  }
+  async afterAuthenticationFailure() {
+    console.log(`❌ Fallo en autenticación — ID: ${this.sessionId}`);
+    await this.deleteSession();
+  }
+  async disconnect() { console.log(`🔌 Desconectando sesión: ${this.sessionId}`); }
+  async destroy() {
+    console.log(`🗑️ Destruyendo sesión: ${this.sessionId}`);
+    await this.deleteSession();
+  }
+  logout() {
+    console.log(`👋 Cerrando sesión: ${this.sessionId}`);
+    return this.deleteSession();
+  }
 
-    async afterAuthenticationSuccess(sessionData?: any) {
-        console.log(`🎉 Autenticación exitosa para sesión: ${this.sessionId}`);
-        if (sessionData) {
-            await this.saveSession(sessionData);
-        }
-    }
+  async sessionExists({ session }: { session: string } = { session: this.sessionId }): Promise<boolean> {
+    const row = await this.prisma.whatsAppSession.findUnique({ where: { session_id: session } });
+    return !!row?.zip_data;
+  }
 
-    async afterAuthenticationFailure() {
-        console.log(`❌ Fallo en autenticación para sesión: ${this.sessionId}`);
-        await this.deleteSession();
-    }
 
-    async disconnect() {
-        console.log(`🔌 Desconectando sesión: ${this.sessionId}`);
-    }
+  async save({ session }: { session: string } = { session: this.sessionId }): Promise<void> {
+    const zipPath = `${session}.zip`;
+    const zip = await fs.readFile(zipPath); 
 
-    async destroy() {
-        console.log(`🗑️ Destruyendo sesión: ${this.sessionId}`);
-        await this.deleteSession();
-    }
+    await this.prisma.whatsAppSession.upsert({
+      where: { session_id: session },
+      create: { session_id: session, zip_data: zip, data: Prisma.JsonNull },
+      update: { zip_data: zip },
+    });
+    console.log(`💾 Sesión ZIP guardada en BD — session_id=${session}`);
+  }
 
-    logout() {
-        console.log(`👋 Cerrando sesión: ${this.sessionId}`);
-        return this.deleteSession();
-    }
+  async extract(
+    { session, path }: { session: string; path: string } = { session: this.sessionId, path: `${this.sessionId}.zip` }
+  ): Promise<void> {
+    const row = await this.prisma.whatsAppSession.findUnique({
+      where: { session_id: session },
+      select: { zip_data: true },
+    });
+    if (!row?.zip_data) throw new Error(`No existe ZIP de sesión en BD — session_id=${session}`);
 
-    // Métodos principales de manejo de sesión
-    async saveSession(sessionData: any) {
-        try {
-            // @ts-ignore - Tabla agregada recientemente, el tipo se actualizará después del reinicio
-            await this.prisma.whatsAppSession.upsert({
-                where: { session_id: this.sessionId },
-                update: {
-                    data: sessionData,
-                    updated_at: new Date()
-                },
-                create: {
-                    session_id: this.sessionId,
-                    data: sessionData,
-                    created_at: new Date(),
-                    updated_at: new Date()
-                }
-            });
-            console.log(`✅ Sesión de WhatsApp guardada en base de datos (ID: ${this.sessionId})`);
-        } catch (error) {
-            console.error('❌ Error al guardar sesión en base de datos:', error);
-        }
-    }
+    await fs.writeFile(path, Buffer.from(row.zip_data as any));
+    console.log(`📦 ZIP escrito en ${path} para RemoteAuth — session_id=${session}`);
+  }
 
-    async loadSession(): Promise<any> {
-        try {
-            // @ts-ignore - Tabla agregada recientemente, el tipo se actualizará después del reinicio
-            const session = await this.prisma.whatsAppSession.findUnique({
-                where: { session_id: this.sessionId }
-            });
 
-            if (session) {
-                console.log(`✅ Sesión de WhatsApp cargada desde base de datos (ID: ${this.sessionId})`);
-                return session.data;
-            } else {
-                console.log(`ℹ️ No se encontró sesión previa en base de datos (ID: ${this.sessionId})`);
-                return null;
-            }
-        } catch (error) {
-            console.error('❌ Error al cargar sesión desde base de datos:', error);
-            return null;
-        }
-    }
+  async delete({ session }: { session: string } = { session: this.sessionId }): Promise<void> {
+    await this.prisma.whatsAppSession.delete({ where: { session_id: session } }).catch(() => {});
+    console.log(`🧹 Sesión remota eliminada de BD — session_id=${session}`);
+  }
 
-    async deleteSession() {
-        try {
-            // @ts-ignore - Tabla agregada recientemente, el tipo se actualizará después del reinicio
-            await this.prisma.whatsAppSession.delete({
-                where: { session_id: this.sessionId }
-            });
-            console.log(`✅ Sesión de WhatsApp eliminada de base de datos (ID: ${this.sessionId})`);
-        } catch (error) {
-            // No mostrar error si la sesión no existe
-            if (error.code !== 'P2025') {
-                console.error('❌ Error al eliminar sesión de base de datos:', error);
-            }
-        }
-    }
 
-    async sessionExists(): Promise<boolean> {
-        try {
-            // @ts-ignore - Tabla agregada recientemente, el tipo se actualizará después del reinicio
-            const session = await this.prisma.whatsAppSession.findUnique({
-                where: { session_id: this.sessionId }
-            });
-            return session !== null;
-        } catch (error) {
-            console.error('❌ Error al verificar existencia de sesión:', error);
-            return false;
-        }
-    }
+  async saveSession(_sessionData: any) {
+    console.log('⚠️ [MD] saveSession(JSON) ignorado: RemoteAuth maneja la persistencia vía store.save()');
+  }
 
-    // Métodos de compatibilidad adicionales
-    async getSessionData() {
-        return await this.loadSession();
-    }
 
-    async setSessionData(sessionData: any) {
-        await this.saveSession(sessionData);
-    }
+  async loadSession(): Promise<any> {
+    console.log('⚠️ [MD] loadSession(JSON) no aplica — usa RemoteAuth + store.extract()');
+    return null;
+  }
 
-    async removeSessionData() {
-        await this.deleteSession();
-    }
+
+  async deleteSession() {
+    await this.delete({ session: this.sessionId });
+  }
+
+  async sessionExistsLegacy(): Promise<boolean> {
+    return this.sessionExists({ session: this.sessionId });
+  }
+
+  async getSessionData() { return this.loadSession(); }
+  async setSessionData(sessionData: any) { return this.saveSession(sessionData); }
+  async removeSessionData() { return this.deleteSession(); }
 }
