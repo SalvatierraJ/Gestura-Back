@@ -528,7 +528,6 @@ export class MateriaService {
         const normalizeText = (s?: string | null) => (s ?? '').trim().toLowerCase();
         const isApproved = (estado?: string | null) => {
             const e = normalizeText(estado);
-            // soporta "aprobado", "aprobada", variantes con espacios o mayúsculas
             return e === 'aprobado' || e === 'aprobada' || e.startsWith('aprob');
         };
 
@@ -537,7 +536,6 @@ export class MateriaService {
                 where: { nroRegistro },
                 include: {
                     estudiante_Carrera: { include: { carrera: true } },
-                    // Traemos la materia de cada cursada para poder comparar por código, nombre y sigla
                     estudiantes_materia: {
                         include: {
                             materia: {
@@ -546,7 +544,6 @@ export class MateriaService {
                                     nombre: true,
                                     siglas_materia: true,
                                     cod_materia: true,
-                                    // para filtrar “aprobadas” por misma carrera del ciclo actual
                                     materia_carrera: { select: { id_carrera: true, numero_pensum: true } }
                                 }
                             }
@@ -554,7 +551,6 @@ export class MateriaService {
                     }
                 }
             });
-
             if (!estudiante) throw new Error("Estudiante no encontrado");
 
             const persona = await this.prisma.persona.findFirst({
@@ -570,80 +566,96 @@ export class MateriaService {
 
             const resultados: ResultadoCarreraPensum[] = [];
 
+            // Precalcular estructuras útiles por rendimiento
+            // Aprobadas por carrera (map: idCarrera -> sets de aprobadas)
+            const aprobadasPorCarrera = new Map<bigint, {
+                ids: Set<bigint>,
+                cods: Set<string>,
+                nombres: Set<string>,
+                siglas: Set<string>
+            }>();
+
             // Recorremos cada carrera del estudiante
             for (const estCarr of estudiante.estudiante_Carrera) {
-                // ---------------------------------------
-                // 1) Determinar el pensum (mejor match; si no, último oficial)
-                // ---------------------------------------
-                const materiasPorPensum = await this.prisma.materia_carrera.findMany({
-                    where: { id_carrera: estCarr.Id_Carrera },
-                    select: { numero_pensum: true, id_materia: true }
-                });
+                const idCarreraBI = toBigInt(estCarr.Id_Carrera)!;
 
-                const pensumMateriasMap = new Map<number, bigint[]>();
-                for (const item of materiasPorPensum) {
-                    if (item.numero_pensum == null) continue; // evita bug “0 falsy”
-                    const numeroPensum = Number(item.numero_pensum);
-                    if (!pensumMateriasMap.has(numeroPensum)) pensumMateriasMap.set(numeroPensum, []);
-                    if (item.id_materia != null) pensumMateriasMap.get(numeroPensum)!.push(item.id_materia);
+                // ---------------------------
+                // A) Construir sets de APROBADAS por esta carrera (una sola vez por carrera)
+                // ---------------------------
+                if (!aprobadasPorCarrera.has(idCarreraBI)) {
+                    const aprobIds = new Set<bigint>();
+                    const aprobCod = new Set<string>();
+                    const aprobNom = new Set<string>();
+                    const aprobSig = new Set<string>();
+
+                    for (const em of estudiante.estudiantes_materia) {
+                        if (!isApproved(em.estado)) continue;
+                        const m = em.materia;
+                        if (!m) continue;
+                        const pertenece = m.materia_carrera?.some(mc => toBigInt(mc.id_carrera) === idCarreraBI);
+                        if (!pertenece) continue;
+
+                        const idMat = toBigInt(m.id_materia);
+                        if (idMat) aprobIds.add(idMat);
+                        if (m.cod_materia != null) aprobCod.add(String(m.cod_materia));
+                        if (m.nombre) aprobNom.add(normalizeText(m.nombre));
+                        if (m.siglas_materia) aprobSig.add(normalizeText(m.siglas_materia));
+                    }
+
+                    aprobadasPorCarrera.set(idCarreraBI, {
+                        ids: aprobIds, cods: aprobCod, nombres: aprobNom, siglas: aprobSig
+                    });
                 }
 
-                // IDs cursados (todas las cursadas del estudiante) normalizados a bigint
-                const idsCursados: bigint[] = estudiante.estudiantes_materia
-                    .map(em => toBigInt(em.id_materia))
-                    .filter((x): x is bigint => x !== null);
+                const aprobadas = aprobadasPorCarrera.get(idCarreraBI)!;
 
+                // ---------------------------
+                // B) Determinar pensum (respeta estCarr.numero_pensum si existe)
+                // ---------------------------
                 let pensumDetectado: number | null = null;
-                let maxMateriasCursadas = -1;
 
-                for (const [numeroPensum, materiasIds] of pensumMateriasMap.entries()) {
-                    const setIds = new Set<bigint>(materiasIds.map(v => BigInt(v)));
-                    const cursadas = idsCursados.filter(id => setIds.has(id)).length;
-                    if (cursadas > maxMateriasCursadas) {
-                        maxMateriasCursadas = cursadas;
-                        pensumDetectado = numeroPensum;
+                if ((estCarr as any).numero_pensum != null) {
+                    pensumDetectado = Number((estCarr as any).numero_pensum);
+                } else {
+                    const planes = await this.prisma.materia_carrera.findMany({
+                        where: { id_carrera: estCarr.Id_Carrera },
+                        select: { numero_pensum: true, id_materia: true }
+                    });
+
+                    const pensumMateriasMap = new Map<number, bigint[]>();
+                    for (const p of planes) {
+                        if (p.numero_pensum == null || p.id_materia == null) continue;
+                        const n = Number(p.numero_pensum);
+                        if (!pensumMateriasMap.has(n)) pensumMateriasMap.set(n, []);
+                        pensumMateriasMap.get(n)!.push(p.id_materia);
+                    }
+
+                    let maxMatches = -1;
+                    for (const [nPensum, idsPlan] of pensumMateriasMap.entries()) {
+                        const setPlan = new Set<bigint>(idsPlan.map(v => BigInt(v)));
+                        // match solo con aprobadas de la misma carrera
+                        const matches = Array.from(aprobadas.ids).filter(id => setPlan.has(id)).length;
+                        if (matches > maxMatches) {
+                            maxMatches = matches;
+                            pensumDetectado = nPensum;
+                        }
+                    }
+
+                    // fallback: último oficial
+                    if (pensumDetectado === null) {
+                        const { _max } = await this.prisma.materia_carrera.aggregate({
+                            where: { id_carrera: estCarr.Id_Carrera },
+                            _max: { numero_pensum: true }
+                        });
+                        pensumDetectado = _max.numero_pensum != null ? Number(_max.numero_pensum) : null;
                     }
                 }
 
-                if (pensumDetectado === null) {
-                    const { _max } = await this.prisma.materia_carrera.aggregate({
-                        where: { id_carrera: estCarr.Id_Carrera },
-                        _max: { numero_pensum: true }
-                    });
-                    pensumDetectado = _max.numero_pensum != null ? Number(_max.numero_pensum) : null;
-                }
                 if (pensumDetectado === null) throw new Error("No se pudo determinar el pensum del estudiante.");
 
-                // ---------------------------------------
-                // 2) Construir sets de materias APROBADAS del estudiante
-                //    — solo las que pertenezcan a esta CARRERA (evita falsos positivos)
-                // ---------------------------------------
-                const idCarreraBI = toBigInt(estCarr.Id_Carrera);
-                const aprobadasId = new Set<bigint>();
-                const aprobadasCod = new Set<string>();       // cod_materia como string
-                const aprobadasNombre = new Set<string>();    // nombre normalizado
-                const aprobadasSigla = new Set<string>();     // sigla normalizada
-
-                for (const em of estudiante.estudiantes_materia) {
-                    if (!isApproved(em.estado)) continue;
-                    const matEm = em.materia;
-                    // Solo contamos como “aprobada” si la materia está vinculada a esta carrera
-                    const perteneceACarrera = matEm?.materia_carrera?.some(mc => {
-                        return toBigInt(mc.id_carrera) === idCarreraBI;
-                    });
-                    if (!perteneceACarrera) continue;
-
-                    const id = toBigInt(em.id_materia);
-                    if (id !== null) aprobadasId.add(id);
-
-                    if (matEm?.cod_materia != null) aprobadasCod.add(String(matEm.cod_materia));
-                    if (matEm?.nombre) aprobadasNombre.add(normalizeText(matEm.nombre));
-                    if (matEm?.siglas_materia) aprobadasSigla.add(normalizeText(matEm.siglas_materia));
-                }
-
-                // ---------------------------------------
-                // 3) Materias del pensum elegido para esta carrera
-                // ---------------------------------------
+                // ---------------------------
+                // C) Materias del pensum elegido + prerrequisitos
+                // ---------------------------
                 const materiasCarrera = await this.prisma.materia_carrera.findMany({
                     where: {
                         id_carrera: estCarr.Id_Carrera,
@@ -662,42 +674,94 @@ export class MateriaService {
                     }
                 });
 
+                // ids de materias del pensum
+                const idsPensum = materiasCarrera
+                    .map(mc => toBigInt(mc.materia?.id_materia))
+                    .filter((x): x is bigint => x != null);
+
+                // ---------------------------
+                // D) Batch equivalencias para todas las materias del pensum
+                // ---------------------------
+                const eqs = idsPensum.length
+                    ? await this.prisma.equivalencias_materia.findMany({
+                        where: {
+                            OR: [
+                                { id_materia_Origen: { in: idsPensum } },
+                                { id_materia_equivalente: { in: idsPensum } }
+                            ]
+                        }
+                    })
+                    : [];
+
+                // Mapa de equivalencias: idMateria -> Set<idEquivalente>
+                const eqMap = new Map<bigint, Set<bigint>>();
+                for (const id of idsPensum) eqMap.set(id, new Set<bigint>());
+                for (const eq of eqs) {
+                    const a = eq.id_materia_Origen;
+                    const b = eq.id_materia_equivalente;
+                    if (!eqMap.has(a)) eqMap.set(a, new Set<bigint>());
+                    if (!eqMap.has(b)) eqMap.set(b, new Set<bigint>());
+                    eqMap.get(a)!.add(b);
+                    eqMap.get(b)!.add(a);
+                }
+
+                // Para poder mostrar nombres equivalentes en bloque, resolvemos nombres de todos los ids involucrados
+                const allEquivalentIds = new Set<bigint>();
+                for (const [id, s] of eqMap.entries()) { s.forEach(x => allEquivalentIds.add(x)); }
+
+                const allIdsToName = new Map<bigint, { nombre: string | null }>();
+                if (allEquivalentIds.size > 0) {
+                    const matsEq = await this.prisma.materia.findMany({
+                        where: { id_materia: { in: Array.from(allEquivalentIds) } },
+                        select: { id_materia: true, nombre: true }
+                    });
+                    for (const m of matsEq) allIdsToName.set(m.id_materia, { nombre: m.nombre ?? null });
+                }
+
+                // ---------------------------
+                // E) Batch horarios: originales + todos los equivalentes
+                // ---------------------------
+                const allIdsForHorarios = new Set<bigint>(idsPensum);
+                for (const id of idsPensum) {
+                    const setE = eqMap.get(id);
+                    if (setE) setE.forEach(x => allIdsForHorarios.add(x));
+                }
+
+                const horarios = allIdsForHorarios.size > 0
+                    ? await this.prisma.horario_materia.findMany({
+                        where: { id_materia: { in: Array.from(allIdsForHorarios) }, estado: true },
+                        include: {
+                            materia: { select: { id_materia: true, nombre: true, siglas_materia: true } }
+                        }
+                    })
+                    : [];
+
+                // Index de horarios por id_materia
+                const horariosByMateria = new Map<bigint, typeof horarios>();
+                for (const h of horarios) {
+                    const idm = toBigInt(h.id_materia)!;
+                    if (!horariosByMateria.has(idm)) horariosByMateria.set(idm, []);
+                    horariosByMateria.get(idm)!.push(h);
+                }
+
+                // ---------------------------
+                // F) Armar MateriasResumen
+                // ---------------------------
                 const materiasInfo: MateriaResumen[] = [];
 
                 for (const mc of materiasCarrera) {
                     const mat = mc.materia;
                     if (!mat) continue;
 
-                    // --- Equivalencias (id ↔ id)
-                    const equivalencias = await this.prisma.equivalencias_materia.findMany({
-                        where: {
-                            OR: [
-                                { id_materia_Origen: mat.id_materia },
-                                { id_materia_equivalente: mat.id_materia }
-                            ]
-                        }
-                    });
+                    const idMat = toBigInt(mat.id_materia)!;
 
-                    const equivalentes: string[] = [];
-                    const idsEquivalentes: bigint[] = [];
+                    // Equivalencias (nombres + ids)
+                    const eqIds = Array.from(eqMap.get(idMat) ?? []);
+                    const equivalentes = eqIds
+                        .map(id => allIdsToName.get(id)?.nombre ?? null)
+                        .filter(n => n && n !== mat.nombre) as string[];
 
-                    for (const eq of equivalencias) {
-                        const idEquivalente =
-                            eq.id_materia_Origen === mat.id_materia
-                                ? eq.id_materia_equivalente
-                                : eq.id_materia_Origen;
-
-                        const materiaEq = await this.prisma.materia.findUnique({
-                            where: { id_materia: idEquivalente },
-                            select: { nombre: true }
-                        });
-                        if (materiaEq && materiaEq.nombre !== mat.nombre) {
-                            equivalentes.push(String(materiaEq.nombre));
-                            idsEquivalentes.push(idEquivalente);
-                        }
-                    }
-
-                    // --- Prerrequisitos ya asociados
+                    // Prerrequisitos
                     const prereq = (mat.materia_preRequisito ?? [])
                         .map(pr => ({
                             nombre: pr.materia_materia_preRequisito_id_materia_preRequisitoTomateria?.nombre,
@@ -706,33 +770,29 @@ export class MateriaService {
                         }))
                         .filter(pr => pr.nombre || (pr.total_materia && pr.total_materia > 0));
 
-                    // --- Estado/APROBADA (con fallbacks)
+                    // Estado (aprobada / equivalencia / coincidencia)
                     let estado: string | null = null;
-
-                    const idMat = toBigInt(mat.id_materia);
-                    if (idMat && aprobadasId.has(idMat)) {
+                    if (aprobadas.ids.has(idMat)) {
                         estado = 'aprobada';
-                    } else if (idsEquivalentes.some(idEq => aprobadasId.has(idEq))) {
+                    } else if (eqIds.some(idEq => aprobadas.ids.has(idEq))) {
                         estado = 'aprobada_por_equivalencia';
                     } else {
-                        // Fallback por código, nombre, sigla (misma carrera)
                         const cod = mat.cod_materia != null ? String(mat.cod_materia) : null;
                         const nom = normalizeText(mat.nombre);
                         const sig = normalizeText(mat.siglas_materia);
-
-                        if ((cod && aprobadasCod.has(cod)) ||
-                            (nom && aprobadasNombre.has(nom)) ||
-                            (sig && aprobadasSigla.has(sig))) {
+                        if ((cod && aprobadas.cods.has(cod)) ||
+                            (nom && aprobadas.nombres.has(nom)) ||
+                            (sig && aprobadas.siglas.has(sig))) {
                             estado = 'aprobada_por_coincidencia';
                         }
                     }
 
-                    // --- Veces cursada (por ID exacto)
+                    // Veces cursada (usar id correcto de materia del include)
                     const vecesCursada = estudiante.estudiantes_materia.filter(
-                        em => toBigInt(em.id_materia) === idMat
+                        em => toBigInt(em.materia?.id_materia) === idMat
                     ).length;
 
-                    // --- Puede cursar (prerrequisitos)
+                    // Puede cursar (validación de prerequisitos)
                     let puedeCursar = false;
                     if (estado === 'aprobada' || estado === 'aprobada_por_equivalencia' || estado === 'aprobada_por_coincidencia') {
                         puedeCursar = false;
@@ -742,82 +802,62 @@ export class MateriaService {
                         puedeCursar = true;
                         for (const pr of prereq) {
                             if (pr.total_materia && pr.total_materia > 0) {
-                                // Nota: aquí podrías contar por carrera si lo necesitas; por ahora cuenta global del estudiante
-                                const totalAprobadas = estudiante.estudiantes_materia.filter(em => isApproved(em.estado)).length;
-                                if (totalAprobadas < pr.total_materia) {
-                                    puedeCursar = false;
-                                    break;
-                                }
+                                const totalAprobadasGlobal = estudiante.estudiantes_materia.filter(em => isApproved(em.estado)).length;
+                                if (totalAprobadasGlobal < pr.total_materia) { puedeCursar = false; break; }
                             } else {
                                 // Resolver prerrequisito por nombre dentro de la MISMA carrera/pensum
                                 const matReq = await this.prisma.materia.findFirst({
                                     where: {
                                         nombre: { equals: pr.nombre ?? '', mode: 'insensitive' },
                                         materia_carrera: {
-                                            some: {
-                                                id_carrera: estCarr.Id_Carrera,
-                                                numero_pensum: BigInt(pensumDetectado)
-                                            }
+                                            some: { id_carrera: estCarr.Id_Carrera, numero_pensum: BigInt(pensumDetectado) }
                                         }
                                     }
                                 });
-
                                 if (!matReq) { puedeCursar = false; break; }
 
+                                const idReq = toBigInt(matReq.id_materia)!;
                                 const aproboMateriaReq = estudiante.estudiantes_materia.some(
-                                    em => toBigInt(em.id_materia) === toBigInt(matReq.id_materia) && isApproved(em.estado)
+                                    em => toBigInt(em.materia?.id_materia) === idReq && isApproved(em.estado)
                                 );
 
-                                // Equivalencias de la requerida
-                                const equivalenciasReq = await this.prisma.equivalencias_materia.findMany({
-                                    where: {
-                                        OR: [
-                                            { id_materia_Origen: matReq.id_materia },
-                                            { id_materia_equivalente: matReq.id_materia }
-                                        ]
+                                let aproboEquivalenteReq = false;
+                                if (!aproboMateriaReq) {
+                                    const eqReq = await this.prisma.equivalencias_materia.findMany({
+                                        where: {
+                                            OR: [
+                                                { id_materia_Origen: idReq },
+                                                { id_materia_equivalente: idReq }
+                                            ]
+                                        }
+                                    });
+                                    const idsEquivReq = new Set<bigint>();
+                                    for (const e of eqReq) {
+                                        idsEquivReq.add(e.id_materia_Origen === idReq ? e.id_materia_equivalente : e.id_materia_Origen);
                                     }
-                                });
-                                const idsEquivReq: bigint[] = equivalenciasReq.map(eq =>
-                                    eq.id_materia_Origen === matReq.id_materia
-                                        ? eq.id_materia_equivalente
-                                        : eq.id_materia_Origen
-                                );
-
-                                const aproboEquivalenteReq = estudiante.estudiantes_materia.some(em => {
-                                    const id = toBigInt(em.id_materia);
-                                    return id !== null && idsEquivReq.includes(id) && isApproved(em.estado);
-                                });
-
-                                if (!aproboMateriaReq && !aproboEquivalenteReq) {
-                                    puedeCursar = false;
-                                    break;
+                                    aproboEquivalenteReq = estudiante.estudiantes_materia.some(em => {
+                                        const id = toBigInt(em.materia?.id_materia);
+                                        return id !== null && idsEquivReq.has(id) && isApproved(em.estado);
+                                    });
                                 }
+
+                                if (!aproboMateriaReq && !aproboEquivalenteReq) { puedeCursar = false; break; }
                             }
                         }
                     }
 
-                    // --- Horarios (original + equivalentes)
-                    const horariosAbiertos = await this.prisma.horario_materia.findMany({
-                        where: { id_materia: mat.id_materia, estado: true }
-                    });
-
-                    const horariosEquivalentes = idsEquivalentes.length
-                        ? await this.prisma.horario_materia.findMany({
-                            where: { id_materia: { in: idsEquivalentes }, estado: true },
-                            include: {
-                                materia: { select: { nombre: true, siglas_materia: true, id_materia: true } }
-                            }
-                        })
-                        : [];
+                    // Horarios (original + equivalentes) desde index preconstruido
+                    const horariosOriginal = horariosByMateria.get(idMat) ?? [];
+                    const horariosEquivalentes = eqIds.flatMap(idEq => horariosByMateria.get(idEq) ?? []);
 
                     const todosLosHorarios = [
-                        ...horariosAbiertos.map(h => ({
+                        ...horariosOriginal.map(h => ({
                             grupo: h.grupo,
                             turno: h.turno,
-                            modalidad: h.Modalidad,
+                            modalidad: (h as any).Modalidad ?? h.Modalidad ?? null,
                             horario: h.horario,
                             gestion: h.gestion ?? null,
-                            bimodular: h.BiModular ?? null,
+                            bimodular: (h as any).BiModular ?? h.BiModular ?? null,
                             modulo_inicio: h.modulo_inicio,
                             modulo_fin: h.modulo_fin,
                             codigo_horario: h.id_horario,
@@ -829,10 +869,10 @@ export class MateriaService {
                         ...horariosEquivalentes.map(h => ({
                             grupo: h.grupo,
                             turno: h.turno,
-                            modalidad: h.Modalidad,
+                            modalidad: (h as any).Modalidad ?? h.Modalidad ?? null,
                             horario: h.horario,
                             gestion: h.gestion ?? null,
-                            bimodular: h.BiModular ?? null,
+                            bimodular: (h as any).BiModular ?? h.BiModular ?? null,
                             modulo_inicio: h.modulo_inicio,
                             modulo_fin: h.modulo_fin,
                             codigo_horario: h.id_horario,
@@ -872,6 +912,7 @@ export class MateriaService {
             throw error;
         }
     }
+
 
 
 
