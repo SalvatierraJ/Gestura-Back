@@ -294,8 +294,7 @@ export class DefensaService {
                     }
                 }
 
-                // ------------------ FLUJO NORMAL (crear nueva) ------------------
-                // Selección de área (si aplica)
+             
                 let areaSorteada: number | null = null;
                 let areaNombreSel: string | null = null;
 
@@ -845,7 +844,6 @@ export class DefensaService {
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
             const telefono = String(estudiante.Persona.telefono);
 
-            // 3) Fecha y hora (formato es-BO + zona horaria La Paz)
             const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
                 timeZone: 'America/La_Paz',
                 weekday: 'long',
@@ -856,7 +854,6 @@ export class DefensaService {
                 minute: '2-digit'
             });
 
-            // 4) Mensaje formal (sin emojis)
             let mensaje = `Estimado/a ${nombreCompleto}:\n\n`;
 
             if (defensaInfo.estado === 'ASIGNADO') {
