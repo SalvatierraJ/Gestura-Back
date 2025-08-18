@@ -92,7 +92,7 @@ export class EstudianteService {
             const nuevoEstudiante = await this.prisma.estudiante.create({
               data: {
                 nroRegistro: String(estudiante.numeroregistro),
-                estado:'EGRESADO',
+                estado: 'EGRESADO',
                 Persona: {
                   create: {
                     Nombre: estudiante.nombre,
@@ -400,7 +400,6 @@ export class EstudianteService {
       throw new Error(`Error updating estudiante: ${error.message}`);
     }
   }
-
   async getAllEstudiantes({
     page = 1,
     pageSize = 10,
@@ -436,27 +435,33 @@ export class EstudianteService {
       ];
 
       const whereBase: any = {
-        estado: { in: ESTADOS_OBJETIVO },
+        AND: [
+          { estado: { in: ESTADOS_OBJETIVO } },
+          { delete_state: { not: true } },
+          { delete_at: null },
+        ],
       };
 
       if (word && word.trim() !== "") {
         const w = word.trim();
-        whereBase.OR = [
-          { Persona: { Nombre: { contains: w, mode: "insensitive" } } },
-          { Persona: { Apellido1: { contains: w, mode: "insensitive" } } },
-          { Persona: { Apellido2: { contains: w, mode: "insensitive" } } },
-          { Persona: { CI: { contains: w, mode: "insensitive" } } },
-          { Persona: { Correo: { contains: w, mode: "insensitive" } } },
-          {
-            estudiante_Carrera: {
-              some: {
-                carrera: {
-                  nombre_carrera: { contains: w, mode: "insensitive" },
+        whereBase.AND.push({
+          OR: [
+            { Persona: { Nombre: { contains: w, mode: "insensitive" } } },
+            { Persona: { Apellido1: { contains: w, mode: "insensitive" } } },
+            { Persona: { Apellido2: { contains: w, mode: "insensitive" } } },
+            { Persona: { CI: { contains: w, mode: "insensitive" } } },
+            { Persona: { Correo: { contains: w, mode: "insensitive" } } },
+            {
+              estudiante_Carrera: {
+                some: {
+                  carrera: {
+                    nombre_carrera: { contains: w, mode: "insensitive" },
+                  },
                 },
               },
             },
-          },
-        ];
+          ],
+        });
       }
 
       if (!isAdmin) {
@@ -474,11 +479,15 @@ export class EstudianteService {
           };
         }
 
-        whereBase.estudiante_Carrera = {
-          some: { Id_Carrera: { in: carrerasIds } },
-          delete_status: { not: true },
-          delete_at: null,
-        };
+        whereBase.AND.push({
+          estudiante_Carrera: {
+            some: {
+              Id_Carrera: { in: carrerasIds as any },
+              delete_state: { not: true },
+              delete_at: null,
+            },
+          },
+        });
       }
 
       const total = await this.prisma.estudiante.count({ where: whereBase });
@@ -529,10 +538,11 @@ export class EstudianteService {
         pageSize: Number(pageSize),
         totalPages: Math.ceil(total / Number(pageSize)),
       };
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`Error fetching estudiantes: ${error.message}`);
     }
   }
+
 
 
   async updateStateOrDeleteEstudiante(
