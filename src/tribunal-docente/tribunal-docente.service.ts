@@ -252,18 +252,9 @@ export class TribunalDocenteService {
       });
       if (!usuario) throw new Error('Usuario no encontrado');
 
-<<<<<<< HEAD
-            const usuario = await this.prisma.usuario.findUnique({
-                where: { Id_Usuario: user },
-                include: {
-                    usuario_Carrera: true
-                }
-            });
-=======
       const isAdmin = (usuario.Usuario_Rol || []).some(
         (ur) => ur.Rol?.Nombre === 'Admin'
       );
->>>>>>> 45dec951d2527a6b4dd53e8b7d4cda1e49a9f983
 
       const notDeleted = { delete_state: { not: true }, delete_at: null };
 
@@ -280,107 +271,8 @@ export class TribunalDocenteService {
           .map((rc) => rc.Id_carrera)
           .filter((id): id is bigint => id != null);
 
-<<<<<<< HEAD
-            const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
-                where: { Id_Carrera: { in: carrerasIds } },
-                select: { Id_Area: true }
-            });
-
-            const areaIds = [
-                ...new Set(
-                    areaCarreraLinks
-                        .map(link => link.Id_Area)
-                        .filter((id): id is bigint => id !== null && id !== undefined)
-                )
-            ];
-
-            if (areaIds.length === 0) {
-                return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
-            }
-
-            const whereClause: any = {
-                AND: [
-                    {
-                        area_Tribunal: {
-                            some: { id_area: { in: areaIds } }
-                        }
-                    }
-                ]
-            };
-
-            if (word && word.trim() !== '') {
-                whereClause.AND.push({
-                    OR: [
-                        { Persona: { Nombre: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { Apellido1: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { Apellido2: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { CI: { contains: word, mode: 'insensitive' } } },
-                        { Persona: { Correo: { contains: word, mode: 'insensitive' } } },
-                        {
-                            area_Tribunal: {
-                                some: {
-                                    area: {
-                                        nombre_area: {
-                                            contains: word,
-                                            mode: 'insensitive'
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    ]
-                });
-            }
-
-            const total = await this.prisma.tribunal_Docente.count({
-                where: whereClause
-            });
-
-            const tribunales = await this.prisma.tribunal_Docente.findMany({
-                where: whereClause,
-                skip,
-                take,
-                include: {
-                    Persona: true,
-                    area_Tribunal: {
-                        include: { area: true }
-                    }
-                }
-            });
-
-            const items = tribunales.map(tribunal => {
-                const { created_at, updated_at, Persona, area_Tribunal, ...result } = tribunal;
-                const Nombre = Persona ? Persona.Nombre : null;
-                const Apellido = Persona ? Persona.Apellido1 : null;
-                const Apellido2 = Persona ? Persona.Apellido2 : null;
-                const areas = (area_Tribunal || [])
-                    .map(a =>
-                        a.area
-                            ? { nombre_area: a.area.nombre_area, id_area: a.area.id_area }
-                            : null
-                    )
-                    .filter(Boolean);
-
-                const correo = Persona ? Persona.Correo : null;
-                const telefono = Persona ? Persona.telefono : null;
-                const ci = Persona ? Persona.CI : null;
-                return { ...result, Nombre, Apellido, Apellido2, areas, correo, telefono, ci };
-            });
-
-            return {
-                items,
-                total,
-                page: Number(page),
-                pageSize: Number(pageSize),
-                totalPages: Math.ceil(total / pageSize)
-            };
-        } catch (error) {
-            console.error("Error en getTribunalesDocentesFiltred:", error);
-            throw new Error(`Error al obtener los tribunales docentes: ${error.message}`);
-=======
         if (carrerasIds.length === 0) {
           return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
->>>>>>> 45dec951d2527a6b4dd53e8b7d4cda1e49a9f983
         }
 
         const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
@@ -496,9 +388,7 @@ export class TribunalDocenteService {
           data: {
             id_Persona: persona.Id_Persona,
             Id_TipoTribunal: tipoTribunal.id_TipoTribunal,
-            estado: true,
-            delete_state: false,     
-            delete_at: null,        
+            estado: true,        
             created_at: new Date(),
             updated_at: new Date(),
           },
