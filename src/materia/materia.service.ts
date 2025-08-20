@@ -36,6 +36,7 @@ export class MateriaService {
         await this.prisma.$transaction(async (tx) => {
             const materiaIds: { [cod_materia: string]: number } = {};
 
+            // Primera fase: registrar materias, carreras, tipos y relaciones
             for (const mat of materias) {
                 let tipo = await tx.tipo_materia.findFirst({ where: { nombre: mat.tipo } });
                 if (!tipo) {
@@ -79,6 +80,7 @@ export class MateriaService {
                 });
             }
 
+            // Segunda fase: prerequisitos y equivalencias
             for (const mat of materias) {
                 const id_materia = materiaIds[mat.sigla] || materiaIds[String(mat.codigo)];
 
@@ -201,21 +203,23 @@ export class MateriaService {
             gestion: string,
         }[]
     }) {
+        // ---------- Helpers ----------
         const romanMap: Record<string, string> = {
             ' i ': ' 1 ', ' ii ': ' 2 ', ' iii ': ' 3 ', ' iv ': ' 4 ', ' v ': ' 5 ',
             ' vi ': ' 6 ', ' vii ': ' 7 ', ' viii ': ' 8 ', ' ix ': ' 9 ', ' x ': ' 10 ',
         };
         const normalizeBasic = (s?: string | null) =>
             (s ?? '')
-                .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+                .normalize('NFD').replace(/\p{Diacritic}/gu, '') // quita tildes
                 .toLowerCase()
-                .replace(/[^a-z0-9 ]+/g, ' ')                 
+                .replace(/[^a-z0-9 ]+/g, ' ')                    // quita signos
                 .replace(/\s+/g, ' ')
                 .trim();
 
         const normalizeWithRomans = (s?: string | null) => {
             let t = ` ${normalizeBasic(s)} `;
             for (const [r, n] of Object.entries(romanMap)) t = t.replace(new RegExp(r, 'g'), n);
+            // inverso (por si DB usa romanos y entrada arábigos)
             t = t
                 .replace(/\b1\b/g, ' i ')
                 .replace(/\b2\b/g, ' ii ')
@@ -248,13 +252,14 @@ export class MateriaService {
         const similarity = (a: string, b: string) => {
             const d = levenshtein(a, b);
             const maxLen = Math.max(a.length, b.length) || 1;
-            return 1 - d / maxLen; 
+            return 1 - d / maxLen; // 1 idéntico, 0 nada
         };
         const toBigInt = (v: unknown): bigint | null => {
             if (v === null || v === undefined) return null;
             return typeof v === 'bigint' ? v : BigInt(v as number);
         };
 
+        // ---------- 1) Buscar si el estudiante ya existe ----------
         const estudianteExistente = await this.prisma.estudiante.findFirst({
             where: { nroRegistro: data.nroRegistro },
             include: {
@@ -262,11 +267,13 @@ export class MateriaService {
             },
         });
 
+        // Decidir si creamos entidades base
         let persona: any = null;
         let estudiante: any = null;
         let usuario: any = null;
 
         if (!estudianteExistente) {
+            // Crear persona/estudiante/usuario/rol solo si NO existe
             const personaPayload = {
                 Nombre: data.persona?.nombre ?? "",
                 Apellido1: data.persona?.apellido1 ?? "",
@@ -284,6 +291,7 @@ export class MateriaService {
 
             const hashedPassword = await bcrypt.hash("12345678", 10);
 
+            // Crea usuario solo si no existe usuario con ese Nombre_Usuario
             const usuarioExist = await this.prisma.usuario.findFirst({
                 where: { Nombre_Usuario: data.nroRegistro },
                 select: { Id_Usuario: true },
@@ -301,12 +309,15 @@ export class MateriaService {
                 });
             }
 
+            // Vincular carrera
             await this.prisma.estudiante_Carrera.create({
                 data: { Id_Estudiante: estudiante.id_estudiante, Id_Carrera: data.carreraId },
             });
         } else {
+            // Ya existe: no creamos persona/usuario; reusamos estudiante
             estudiante = estudianteExistente;
 
+            // Si no tiene vínculo de carrera, créalo con el carreraId recibido
             const hasCarrera = estudianteExistente.estudiante_Carrera.length > 0;
             if (!hasCarrera && data.carreraId) {
                 await this.prisma.estudiante_Carrera.create({
@@ -315,8 +326,10 @@ export class MateriaService {
             }
         }
 
+        // ---------- 2) Registrar materias SOLO si se enviaron ----------
         const materiasInput = Array.isArray(data.materias) ? data.materias : [];
         if (materiasInput.length > 0) {
+            // Recuperar (o crear si faltaba) el vínculo de carrera más reciente
             const vinculoCarrera = await this.prisma.estudiante_Carrera.findFirst({
                 where: { Id_Estudiante: estudiante.id_estudiante },
                 orderBy: { Id_CarreraEstudiante: 'desc' },
@@ -326,6 +339,7 @@ export class MateriaService {
 
             const idCarrera = vinculoCarrera.Id_Carrera;
 
+            // Último pensum de esa carrera
             const { _max } = await this.prisma.materia_carrera.aggregate({
                 where: { id_carrera: idCarrera },
                 _max: { numero_pensum: true },
@@ -333,6 +347,7 @@ export class MateriaService {
             const ultimoPensum = _max.numero_pensum;
             if (ultimoPensum == null) throw new Error('La carrera no tiene pensum registrado');
 
+            // Materias del último pensum
             const materiasPensum = await this.prisma.materia.findMany({
                 where: {
                     nombre: { not: null },
@@ -342,6 +357,7 @@ export class MateriaService {
             });
             const idsPensum = materiasPensum.map(m => m.id_materia);
 
+            // Equivalencias asociadas al pensum (para aceptar nombres de otras versiones)
             const equivalencias = await this.prisma.equivalencias_materia.findMany({
                 where: {
                     OR: [
@@ -352,6 +368,7 @@ export class MateriaService {
                 select: { id_materia_Origen: true, id_materia_equivalente: true },
             });
 
+            // Materias equivalentes “externas” (no en el último pensum) para construir alias
             const idsEquivalentesExternos = Array.from(new Set(
                 equivalencias.flatMap(eq => {
                     const inPensumOri = idsPensum.includes(eq.id_materia_Origen);
@@ -368,6 +385,7 @@ export class MateriaService {
                 })
                 : [];
 
+            // Construcción de alias normalizados -> id_materia (del último pensum)
             const aliasToId = new Map<string, bigint>();
             const getNombreById = (id: bigint) =>
                 materiasPensum.find(m => m.id_materia === id)?.nombre
@@ -404,6 +422,7 @@ export class MateriaService {
                 const exact = aliasToId.get(norm);
                 if (exact) return exact;
 
+                // Fuzzy
                 let bestKey = '';
                 let bestScore = 0;
                 for (const k of aliasKeys) {
@@ -414,14 +433,18 @@ export class MateriaService {
                 return undefined;
             };
 
+            // Registrar SOLO si no existe (skip si ya está)
             await this.prisma.$transaction(async (tx) => {
                 for (const mat of materiasInput) {
                     const idMateria = pickIdByNombre(mat.nombre);
                     if (!idMateria) {
+                        console.error('Materia NO mapeada al último pensum:', mat.nombre);
+                        // Saltar o lanzar error. Si prefieres NO romper el flujo, descomenta:
+                        // continue;
                         throw new Error(`Materia no pertenece al último pensum o no existe: ${mat.nombre}`);
                     }
 
-      
+                    // ¿Ya existe la inscripción? -> saltar
                     const yaExiste = await tx.estudiantes_materia.findUnique({
                         where: {
                             id_estudiante_id_materia_Gestion: {
@@ -434,7 +457,7 @@ export class MateriaService {
                     });
                     if (yaExiste) continue;
 
-               
+                    // Crear nueva inscripción
                     await tx.estudiantes_materia.create({
                         data: {
                             id_estudiante: estudiante.id_estudiante,
@@ -502,7 +525,7 @@ export class MateriaService {
             }[]
         };
 
-   
+        // Helpers
         const toBigInt = (v: unknown): bigint | null => {
             if (v === null || v === undefined) return null;
             return typeof v === 'bigint' ? v : BigInt(v as number);
@@ -548,7 +571,8 @@ export class MateriaService {
 
             const resultados: ResultadoCarreraPensum[] = [];
 
-
+            // Precalcular estructuras útiles por rendimiento
+            // Aprobadas por carrera (map: idCarrera -> sets de aprobadas)
             const aprobadasPorCarrera = new Map<bigint, {
                 ids: Set<bigint>,
                 cods: Set<string>,
@@ -556,11 +580,13 @@ export class MateriaService {
                 siglas: Set<string>
             }>();
 
-    
+            // Recorremos cada carrera del estudiante
             for (const estCarr of estudiante.estudiante_Carrera) {
                 const idCarreraBI = toBigInt(estCarr.Id_Carrera)!;
 
-          
+                // ---------------------------
+                // A) Construir sets de APROBADAS por esta carrera (una sola vez por carrera)
+                // ---------------------------
                 if (!aprobadasPorCarrera.has(idCarreraBI)) {
                     const aprobIds = new Set<bigint>();
                     const aprobCod = new Set<string>();
@@ -588,7 +614,9 @@ export class MateriaService {
 
                 const aprobadas = aprobadasPorCarrera.get(idCarreraBI)!;
 
-            
+                // ---------------------------
+                // B) Determinar pensum (respeta estCarr.numero_pensum si existe)
+                // ---------------------------
                 let pensumDetectado: number | null = null;
 
                 if ((estCarr as any).numero_pensum != null) {
@@ -610,6 +638,7 @@ export class MateriaService {
                     let maxMatches = -1;
                     for (const [nPensum, idsPlan] of pensumMateriasMap.entries()) {
                         const setPlan = new Set<bigint>(idsPlan.map(v => BigInt(v)));
+                        // match solo con aprobadas de la misma carrera
                         const matches = Array.from(aprobadas.ids).filter(id => setPlan.has(id)).length;
                         if (matches > maxMatches) {
                             maxMatches = matches;
@@ -617,7 +646,7 @@ export class MateriaService {
                         }
                     }
 
-    
+                    // fallback: último oficial
                     if (pensumDetectado === null) {
                         const { _max } = await this.prisma.materia_carrera.aggregate({
                             where: { id_carrera: estCarr.Id_Carrera },
@@ -629,6 +658,9 @@ export class MateriaService {
 
                 if (pensumDetectado === null) throw new Error("No se pudo determinar el pensum del estudiante.");
 
+                // ---------------------------
+                // C) Materias del pensum elegido + prerrequisitos
+                // ---------------------------
                 const materiasCarrera = await this.prisma.materia_carrera.findMany({
                     where: {
                         id_carrera: estCarr.Id_Carrera,
@@ -647,10 +679,14 @@ export class MateriaService {
                     }
                 });
 
+                // ids de materias del pensum
                 const idsPensum = materiasCarrera
                     .map(mc => toBigInt(mc.materia?.id_materia))
                     .filter((x): x is bigint => x != null);
 
+                // ---------------------------
+                // D) Batch equivalencias para todas las materias del pensum
+                // ---------------------------
                 const eqs = idsPensum.length
                     ? await this.prisma.equivalencias_materia.findMany({
                         where: {
@@ -662,6 +698,7 @@ export class MateriaService {
                     })
                     : [];
 
+                // Mapa de equivalencias: idMateria -> Set<idEquivalente>
                 const eqMap = new Map<bigint, Set<bigint>>();
                 for (const id of idsPensum) eqMap.set(id, new Set<bigint>());
                 for (const eq of eqs) {
@@ -673,6 +710,7 @@ export class MateriaService {
                     eqMap.get(b)!.add(a);
                 }
 
+                // Para poder mostrar nombres equivalentes en bloque, resolvemos nombres de todos los ids involucrados
                 const allEquivalentIds = new Set<bigint>();
                 for (const [id, s] of eqMap.entries()) { s.forEach(x => allEquivalentIds.add(x)); }
 
@@ -685,7 +723,9 @@ export class MateriaService {
                     for (const m of matsEq) allIdsToName.set(m.id_materia, { nombre: m.nombre ?? null });
                 }
 
-         
+                // ---------------------------
+                // E) Batch horarios: originales + todos los equivalentes
+                // ---------------------------
                 const allIdsForHorarios = new Set<bigint>(idsPensum);
                 for (const id of idsPensum) {
                     const setE = eqMap.get(id);
@@ -709,7 +749,9 @@ export class MateriaService {
                     horariosByMateria.get(idm)!.push(h);
                 }
 
-         
+                // ---------------------------
+                // F) Armar MateriasResumen
+                // ---------------------------
                 const materiasInfo: MateriaResumen[] = [];
 
                 for (const mc of materiasCarrera) {
@@ -809,6 +851,7 @@ export class MateriaService {
                         }
                     }
 
+                    // Horarios (original + equivalentes) desde index preconstruido
                     const horariosOriginal = horariosByMateria.get(idMat) ?? [];
                     const horariosEquivalentes = eqIds.flatMap(idEq => horariosByMateria.get(idEq) ?? []);
 
@@ -1305,7 +1348,7 @@ export class MateriaService {
                 carrera: carrera.nombre_carrera,
                 pensum: numeroPensum,
                 materias: materiasInfo,
-                materiasIdNombrePensum
+                materiasIdNombrePensum // <-- TODAS las materias de todos los pensums
             };
 
         } catch (error) {

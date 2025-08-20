@@ -479,7 +479,7 @@ model Persona {
   Nombre           String             @db.VarChar(500)
   Apellido1        String             @db.VarChar(500)
   Apellido2        String?            @db.VarChar(500)
-  Correo           String?            @unique @db.VarChar(500) 
+  Correo           String?            @db.VarChar(500)
   CI               String?            @db.VarChar(255)
   created_at       DateTime?          @db.Timestamp(6)
   updated_at       DateTime?          @db.Timestamp(6)
