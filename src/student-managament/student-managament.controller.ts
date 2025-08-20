@@ -16,13 +16,14 @@ export class StudentManagamentController {
         return this.estudianteService.getAllEstudiantes({ page, pageSize, user: user.userId });
     }
     //Filtrado de estudiantes por palabra
+    @UseGuards(JwtAuthGuard)
     @Get('/estudiantes/:page/:pageSize/:word')
     async filtredCarreras(@Request() req) {
         const user = req.user;
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
         const word = String(req.params.word);
-        return this.estudianteService.getAllEstudiantesFiltred({page, pageSize, user: user.userIdm, word});
+        return this.estudianteService.getAllEstudiantesFiltred({page, pageSize, user: user.userId, word});
     }
 
     @Post('/nuevo-estudiante')

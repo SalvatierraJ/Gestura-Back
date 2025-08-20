@@ -28,6 +28,7 @@ import { BullModule } from '@nestjs/bull';
 import { MateriaModule } from './materia/materia.module';
 import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
 import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
+import { PlantillaModule} from './plantilla/plantilla.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JWT_KEY } from '../constants/jwt-key';
 
@@ -72,8 +73,8 @@ import { JWT_KEY } from '../constants/jwt-key';
     PermisosModule,
     ModulosModule,
     MateriaModule,
-    RegistroMateriaModule
-
+    RegistroMateriaModule,
+    PlantillaModule
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService, CasosEstudioService],
