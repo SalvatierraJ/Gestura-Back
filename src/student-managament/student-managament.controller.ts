@@ -23,7 +23,6 @@ export class StudentManagamentController {
             word,
         });
     }
-<<<<<<< HEAD
     //Filtrado de estudiantes por palabra
     @UseGuards(JwtAuthGuard)
     @Get('/estudiantes/:page/:pageSize/:word')
@@ -32,18 +31,16 @@ export class StudentManagamentController {
         const page = Number(req.params.page);
         const pageSize = Number(req.params.pageSize);
         const word = String(req.params.word);
-        return this.estudianteService.getAllEstudiantesFiltred({page, pageSize, user: user.userId, word});
-=======
+        return this.estudianteService.getAllEstudiantes({page, pageSize, user: user.userId, word});
+    }
 
-    @Put('/estudiante/:id/estado-o-borrado')
+     @Put('/estudiante/:id/estado-o-borrado')
     updateEstadoOBorrado(
         @Param('id') id: string,
         @Body() body:  UpdateEstudianteStateOrDeleteDto,
     ) {
         return this.estudianteService.updateStateOrDeleteEstudiante(Number(id), body);
->>>>>>> 45dec951d2527a6b4dd53e8b7d4cda1e49a9f983
     }
-
 
     @Post('/nuevo-estudiante')
     async createCarrera(@Body() body: any) {

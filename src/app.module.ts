@@ -28,7 +28,6 @@ import { BullModule } from '@nestjs/bull';
 import { MateriaModule } from './materia/materia.module';
 import { RegistroMateriaModule } from './registro-materia/registro-materia.module';
 import { ProfileCheckMiddleware } from './common/middleware/profile-check.middleware';
-import { PlantillaModule} from './plantilla/plantilla.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JWT_KEY } from '../constants/jwt-key';
 import { RedisService } from './redis/redis.service';
@@ -83,15 +82,11 @@ import { ModuloPeriodoModule } from './modulo-periodo/modulo-periodo.module';
     ModulosModule,
     MateriaModule,
     RegistroMateriaModule,
-<<<<<<< HEAD
-    PlantillaModule
-=======
     ChatbotModule,
     RedisModule,
     IaModule,
     ModuloPeriodoModule
 
->>>>>>> 45dec951d2527a6b4dd53e8b7d4cda1e49a9f983
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService, IaService, ModuloPeriodoService],
