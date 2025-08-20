@@ -388,9 +388,7 @@ export class TribunalDocenteService {
           data: {
             id_Persona: persona.Id_Persona,
             Id_TipoTribunal: tipoTribunal.id_TipoTribunal,
-            estado: true,
-            delete_state: false,     
-            delete_at: null,        
+            estado: true,        
             created_at: new Date(),
             updated_at: new Date(),
           },
