@@ -8,18 +8,22 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: salvatierraj/gestura-back   # Docker Hub exige minúsculas
+  IMAGE_NAME: salvatierraj/gestura-back
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Docker meta (tags/labels automáticos)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -32,11 +36,11 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}                  # docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}    # TU usuario de Docker Hub
-          password: ${{ secrets.DOCKERHUB_TOKEN }}       # PAT (no password de cuenta)
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & Push
+      - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -58,22 +62,25 @@ jobs:
           authkey: ${{ secrets.TS_AUTHKEY }}
           args: "--hostname gha-deployer --timeout 2m"
 
-      # Despliegue vía SSH clásico (llaves) a través de la red Tailscale
-      - name: Deploy over SSH via Tailscale (keys)
+      - name: Deploy over SSH via Tailscale
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.SSH_HOST }}   # ej: ubuntu-ci.tailXXXX.ts.net o 100.x.y.z
+          host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}     # clave privada que corresponda a authorized_keys del server
+          key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             set -e
             APP_DIR=/opt/gestura-back
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
-
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
+            
+            # Login to Docker Hub on the remote server
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+            
+            # Pull and restart services
             docker compose pull
             docker compose up -d --remove-orphans
+            
+            # Clean up unused images
             docker image prune -f
