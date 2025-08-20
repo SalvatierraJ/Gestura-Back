@@ -19,7 +19,11 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "release": "standard-version"
+    "release": "standard-version",
+      "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:dbpush": "prisma db push --accept-data-loss"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.0",
@@ -43,6 +47,8 @@
     "class-validator": "^0.14.2",
     "cloudinary": "^1.41.3",
     "dayjs": "^1.11.13",
+    "docxtemplater": "^3.65.3",
+    "exceljs": "^4.4.0",
     "express-jwt": "^8.5.1",
     "handlebars": "^4.7.8",
     "ioredis": "^5.7.0",
@@ -57,13 +63,16 @@
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
     "pg": "^8.16.0",
+    "pizzip": "^3.2.0",
     "prisma": "^6.9.0",
     "puppeteer": "^24.16.2",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
+    "react-select": "^5.10.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "whatsapp-web.js": "^1.31.0"
+    "whatsapp-web.js": "^1.31.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

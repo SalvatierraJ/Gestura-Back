@@ -5,24 +5,11 @@ import { PrismaService } from 'src/database/prisma.services';
 export class TribunalDocenteService {
   constructor(private prisma: PrismaService) {}
 
-  private getCurrentGestion(): string {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; 
-
-    if (currentMonth >= 1 && currentMonth <= 6) {
-      return `${currentYear}-1`;
-    } else {
-      return `${currentYear}-2`;
-    }
-  }
-
   // ------------------- LISTADO (ADMIN / NO-ADMIN) -------------------
   async getTribunalesDocentes({ page = 1, pageSize = 10, user }) {
     try {
       const skip = (Number(page) - 1) * Number(pageSize);
       const take = Number(pageSize);
-      const gestionActual = this.getCurrentGestion();
 
       const usuario = await this.prisma.usuario.findUnique({
         where: { Id_Usuario: user },
@@ -51,26 +38,11 @@ export class TribunalDocenteService {
           include: {
             Persona: true,
             area_Tribunal: { include: { area: true } },
-            horario_materia: {
-              where: {
-                gestion: gestionActual,
-                estado: true,
-              },
-              include: {
-                materia: {
-                  select: {
-                    nombre: true,
-                    siglas_materia: true,
-                    cod_materia: true,
-                  },
-                },
-              },
-            },
           },
         });
 
         const items = tribunales.map((t) => {
-          const { created_at, updated_at, Persona, area_Tribunal, horario_materia, ...result } = t;
+          const { created_at, updated_at, Persona, area_Tribunal, ...result } = t;
           const Nombre = Persona?.Nombre ?? null;
           const Apellido = Persona?.Apellido1 ?? null;
           const Apellido2 = Persona?.Apellido2 ?? null;
@@ -84,30 +56,7 @@ export class TribunalDocenteService {
             )
             .filter(Boolean);
 
-          const materias_horarios = (horario_materia || []).map((hm) => ({
-            id_horario: hm.id_horario,
-            materia_nombre: hm.materia?.nombre || 'Sin nombre',
-            materia_siglas: hm.materia?.siglas_materia || 'Sin siglas',
-            materia_codigo: hm.materia?.cod_materia || null,
-            grupo: hm.grupo || 'Sin grupo',
-            horario: hm.horario || 'Sin horario',
-            turno: hm.turno || 'Sin turno',
-            modalidad: hm.Modalidad || 'Sin modalidad',
-            gestion: hm.gestion,
-          }));
-
-          return { 
-            ...result, 
-            Nombre, 
-            Apellido, 
-            Apellido2, 
-            areas, 
-            correo, 
-            telefono, 
-            ci,
-            materias_horarios,
-            gestion_actual: gestionActual,
-          };
+          return { ...result, Nombre, Apellido, Apellido2, areas, correo, telefono, ci };
         });
 
         return {
@@ -159,26 +108,11 @@ export class TribunalDocenteService {
         include: {
           Persona: true,
           area_Tribunal: { include: { area: true } },
-          horario_materia: {
-            where: {
-              gestion: gestionActual,
-              estado: true,
-            },
-            include: {
-              materia: {
-                select: {
-                  nombre: true,
-                  siglas_materia: true,
-                  cod_materia: true,
-                },
-              },
-            },
-          },
         },
       });
 
       const items = tribunales.map((t) => {
-        const { created_at, updated_at, Persona, area_Tribunal, horario_materia, ...result } = t;
+        const { created_at, updated_at, Persona, area_Tribunal, ...result } = t;
         const Nombre = Persona?.Nombre ?? null;
         const Apellido = Persona?.Apellido1 ?? null;
         const Apellido2 = Persona?.Apellido2 ?? null;
@@ -192,30 +126,7 @@ export class TribunalDocenteService {
           )
           .filter(Boolean);
 
-        const materias_horarios = (horario_materia || []).map((hm) => ({
-          id_horario: hm.id_horario,
-          materia_nombre: hm.materia?.nombre || 'Sin nombre',
-          materia_siglas: hm.materia?.siglas_materia || 'Sin siglas',
-          materia_codigo: hm.materia?.cod_materia || null,
-          grupo: hm.grupo || 'Sin grupo',
-          horario: hm.horario || 'Sin horario',
-          turno: hm.turno || 'Sin turno',
-          modalidad: hm.Modalidad || 'Sin modalidad',
-          gestion: hm.gestion,
-        }));
-
-        return { 
-          ...result, 
-          Nombre, 
-          Apellido, 
-          Apellido2, 
-          areas, 
-          correo, 
-          telefono, 
-          ci,
-          materias_horarios,
-          gestion_actual: gestionActual,
-        };
+        return { ...result, Nombre, Apellido, Apellido2, areas, correo, telefono, ci };
       });
 
       return {
@@ -388,9 +299,7 @@ export class TribunalDocenteService {
           data: {
             id_Persona: persona.Id_Persona,
             Id_TipoTribunal: tipoTribunal.id_TipoTribunal,
-            estado: true,
-            delete_state: false,     
-            delete_at: null,        
+            estado: true,        
             created_at: new Date(),
             updated_at: new Date(),
           },

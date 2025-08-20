@@ -23,15 +23,24 @@ export class StudentManagamentController {
             word,
         });
     }
+    //Filtrado de estudiantes por palabra
+    @UseGuards(JwtAuthGuard)
+    @Get('/estudiantes/:page/:pageSize/:word')
+    async filtredCarreras(@Request() req) {
+        const user = req.user;
+        const page = Number(req.params.page);
+        const pageSize = Number(req.params.pageSize);
+        const word = String(req.params.word);
+        return this.estudianteService.getAllEstudiantes({page, pageSize, user: user.userId, word});
+    }
 
-    @Put('/estudiante/:id/estado-o-borrado')
+     @Put('/estudiante/:id/estado-o-borrado')
     updateEstadoOBorrado(
         @Param('id') id: string,
         @Body() body:  UpdateEstudianteStateOrDeleteDto,
     ) {
         return this.estudianteService.updateStateOrDeleteEstudiante(Number(id), body);
     }
-
 
     @Post('/nuevo-estudiante')
     async createCarrera(@Body() body: any) {
