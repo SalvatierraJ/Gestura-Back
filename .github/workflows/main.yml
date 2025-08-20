@@ -8,7 +8,8 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: salvatierraj/gestura-back   
+  IMAGE_NAME: salvatierraj/gestura-back   # Docker Hub exige minúsculas
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,10 +32,9 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}    
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}  
-
+          registry: ${{ env.REGISTRY }}                  # docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}    # TU usuario de Docker Hub
+          password: ${{ secrets.DOCKERHUB_TOKEN }}       # PAT (no password de cuenta)
 
       - name: Build & Push
         uses: docker/build-push-action@v6
@@ -56,29 +56,24 @@ jobs:
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
+          args: "--hostname gha-deployer --timeout 2m"
 
-      - name: Deploy via Tailscale SSH
-        env:
-          SSH_HOST: ubuntu-ci.tail60ceb7.ts.net   
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          set -e
-          # Requiere que en el server tengas 'tailscale up --ssh'
-          # y que la policy de Access Controls permita SSH desde este runner.
+      # Despliegue vía SSH clásico (llaves) a través de la red Tailscale
+      - name: Deploy over SSH via Tailscale (keys)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}   # ej: ubuntu-ci.tailXXXX.ts.net o 100.x.y.z
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}     # clave privada que corresponda a authorized_keys del server
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+            APP_DIR=/opt/tu-app
+            mkdir -p "$APP_DIR"
+            cd "$APP_DIR"
 
-          # Usamos 'tailscale ssh' (no llaves) para ejecutar un script remoto.
-          # Si prefieres OpenSSH con llaves, cambia por 'ssh' y añade key.
-          tailscale ssh deploy@"$SSH_HOST" 'bash -s' <<EOF
-          set -e
-          APP_DIR=/opt/tu-app
-          mkdir -p "\$APP_DIR"
-          cd "\$APP_DIR"
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-          # Login a Docker Hub en el servidor con password-stdin
-          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
-
-          docker compose pull
-          docker compose up -d --remove-orphans
-          docker image prune -f
-          EOF
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f
