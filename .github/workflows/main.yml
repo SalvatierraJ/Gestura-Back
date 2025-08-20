@@ -7,7 +7,8 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: salvatierraj/GESTURA-BACK
+  REGISTRY: docker.io
+  IMAGE_NAME: salvatierraj/gestura-back   # repos de Docker Hub en minúsculas
 
 jobs:
   build:
@@ -18,11 +19,11 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Docker meta
+      - name: Docker meta (tags/labels automáticos)
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
@@ -31,6 +32,7 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
+          registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
@@ -56,22 +58,28 @@ jobs:
           authkey: ${{ secrets.TS_AUTHKEY }}
           args: "--hostname gha-deployer --timeout 2m"
 
-      - name: Deploy via Tailscale SSH
+      - name: Deploy via Tailscale SSH (sin llaves)
         env:
-          SSH_HOST: ubuntu-ci.tail60ceb7.ts.net  
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          SSH_HOST: ubuntu-ci.tail60ceb7.ts.net   # o la IP 100.x de tu servidor
         run: |
           set -e
-          # si no usas MagicDNS, reemplaza por la IP 100.x de 'tailscale ip -4'
+          # NOTA: Tailscale SSH requiere que el servidor tenga `tailscale up --ssh`
+          # y que la política de Access Controls permita SSH desde este runner.
+
           ssh -o StrictHostKeyChecking=no deploy@"$SSH_HOST" << 'EOS'
           set -e
           APP_DIR=/opt/tu-app
           mkdir -p "$APP_DIR"
           cd "$APP_DIR"
 
-          docker login -u "${DOCKERHUB_USERNAME}" -p "${DOCKERHUB_TOKEN}"
+          # Login a Docker Hub en el servidor usando password-stdin (más seguro)
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+
           docker compose pull
           docker compose up -d --remove-orphans
           docker image prune -f
           EOS
+        # Pasamos credenciales como env del paso para que el heredoc las expanda EN el servidor
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
