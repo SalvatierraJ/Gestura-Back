@@ -37,8 +37,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.production.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.production.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -76,7 +76,7 @@ jobs:
             cd "$APP_DIR"
             
             # Login to Docker Hub on the remote server
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+            echo "${{ secrets.production.DOCKERHUB_TOKEN }}" | docker login docker.io -u "${{ secrets.production.DOCKERHUB_USERNAME }}" --password-stdin
             
             # Pull and restart services
             docker compose pull
