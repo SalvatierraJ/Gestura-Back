@@ -24,14 +24,13 @@ export class StudentManagamentController {
         });
     }
 
-    @Put('/estudiante/:id/estado-o-borrado')
+     @Put('/estudiante/:id/estado-o-borrado')
     updateEstadoOBorrado(
         @Param('id') id: string,
         @Body() body:  UpdateEstudianteStateOrDeleteDto,
     ) {
         return this.estudianteService.updateStateOrDeleteEstudiante(Number(id), body);
     }
-
 
     @Post('/nuevo-estudiante')
     async createCarrera(@Body() body: any) {
