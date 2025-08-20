@@ -1,3 +1,4 @@
+<<<<<<< HEAD
     generator client {
       provider = "prisma-client-js"
     }
@@ -439,3 +440,466 @@
 
     @@map("plantillas")
   } 
+=======
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Bitacora {
+  id_bitacora            BigInt    @id @default(autoincrement())
+  Tabla_Afectada         String?   @db.VarChar(500)
+  id_registros_afectados BigInt?
+  operacion              BigInt?
+  Usuario_Responsable    BigInt?
+  fecha_Hora             DateTime? @db.Timestamp(6)
+  detalles               Json?     @db.Json
+  created_at             DateTime? @db.Timestamp(6)
+  updated_at             DateTime? @db.Timestamp(6)
+}
+
+model Contrato_Docente {
+  Id_Contrato_Docente BigInt            @id @default(autoincrement())
+  Id_Tribunal_Docente BigInt?
+  Id_Tipo_Contrato    BigInt?
+  Fecha_Inicio        DateTime?         @db.Date
+  Fecha_Fin           DateTime?         @db.Date
+  created_at          DateTime?         @db.Timestamp(6)
+  updated_at          DateTime?         @db.Timestamp(6)
+  Tipo_Contrato       Tipo_Contrato?    @relation(fields: [Id_Tipo_Contrato], references: [Id_Tipo_Contrato], onDelete: NoAction, onUpdate: NoAction)
+  tribunal_Docente    tribunal_Docente? @relation(fields: [Id_Tribunal_Docente], references: [id_tribunal], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model Persona {
+  Id_Persona       BigInt             @id @default(autoincrement())
+  Nombre           String             @db.VarChar(500)
+  Apellido1        String             @db.VarChar(500)
+  Apellido2        String?            @db.VarChar(500)
+  Correo           String?            @unique @db.VarChar(500) 
+  CI               String?            @db.VarChar(255)
+  created_at       DateTime?          @db.Timestamp(6)
+  updated_at       DateTime?          @db.Timestamp(6)
+  telefono         BigInt?
+  delete_at        DateTime?          @db.Timestamptz(6)
+  delete_state     Boolean?           @default(false)
+  Usuario          Usuario[]
+  estudiante       estudiante[]
+  tribunal_Docente tribunal_Docente[]
+}
+
+model Rol {
+  id_Rol             BigInt               @id @default(autoincrement())
+  Nombre             String?              @db.VarChar(500)
+  created_at         DateTime?            @db.Timestamp(6)
+  updated_at         DateTime?            @db.Timestamp(6)
+  delete_at          DateTime?            @db.Timestamptz(6)
+  delete_state       Boolean?             @default(false)
+  Usuario_Rol        Usuario_Rol[]
+  rol_Modulo_Permiso rol_Modulo_Permiso[]
+}
+
+model Tipo_Contrato {
+  Id_Tipo_Contrato BigInt             @id @default(autoincrement())
+  Nombre           BigInt?
+  created_at       DateTime?          @db.Timestamp(6)
+  updated_at       DateTime?          @db.Timestamp(6)
+  Contrato_Docente Contrato_Docente[]
+}
+
+model Tipo_Defensa {
+  id_TipoDefensa BigInt    @id @default(autoincrement())
+  Nombre         String?   @db.VarChar(500)
+  created_at     DateTime? @db.Timestamp(6)
+  updated_at     DateTime? @db.Timestamp(6)
+  defensa        defensa[]
+}
+
+model Tipo_Tribunal {
+  id_TipoTribunal  BigInt             @id @default(autoincrement())
+  Nombre           String?            @db.VarChar
+  created_at       DateTime?          @db.Timestamp(6)
+  updated_at       DateTime?          @db.Timestamp(6)
+  tribunal_Docente tribunal_Docente[]
+}
+
+model Usuario {
+  Id_Usuario           BigInt                 @id @default(autoincrement())
+  Nombre_Usuario       String                 @unique @db.VarChar(500)
+  Password             String                 @db.VarChar(500)
+  Id_Persona           BigInt
+  created_at           DateTime?              @db.Timestamp(6)
+  updated_at           DateTime?              @db.Timestamp(6)
+  delete_at            DateTime?              @db.Timestamptz(6)
+  delete_state         Boolean?               @default(false)
+  Persona              Persona                @relation(fields: [Id_Persona], references: [Id_Persona], onDelete: NoAction, onUpdate: NoAction)
+  Usuario_Rol          Usuario_Rol[]
+  defensa              defensa[]
+  documentos_generados documentos_generados[]
+  usuario_Carrera      usuario_Carrera[]
+}
+
+model archivos_defensa {
+  id_archivo_defensa BigInt    @id @default(autoincrement())
+  id_defensa         BigInt?
+  nombre_Archivo     String?   @db.VarChar(500)
+  tipo_archivo       BigInt?
+  ruta_archivo       String?
+  fecha_subida       DateTime? @db.Timestamp(6)
+  created_at         DateTime? @db.Timestamp(6)
+  updated_at         DateTime? @db.Timestamp(6)
+  defensa            defensa?  @relation(fields: [id_defensa], references: [id_defensa], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model area {
+  id_area          BigInt             @id @default(autoincrement())
+  nombre_area      String             @db.VarChar(100)
+  created_at       DateTime?          @db.Timestamp(6)
+  updated_at       DateTime?          @db.Timestamp(6)
+  estado           Boolean?
+  delete_at        DateTime?          @db.Timestamptz(6)
+  delete_status    Boolean?           @default(false)
+  area_Tribunal    area_Tribunal[]
+  carrera_Area     carrera_Area[]
+  casos_de_estudio casos_de_estudio[]
+  defensa          defensa[]
+}
+
+model area_Tribunal {
+  id_areaTribunal  BigInt            @id @default(autoincrement())
+  id_Tribunal      BigInt?
+  id_area          BigInt?
+  created_at       DateTime?         @db.Timestamp(6)
+  updated_at       DateTime?         @db.Timestamp(6)
+  tribunal_Docente tribunal_Docente? @relation(fields: [id_Tribunal], references: [id_tribunal], onDelete: NoAction, onUpdate: NoAction)
+  area             area?             @relation(fields: [id_area], references: [id_area], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model carrera {
+  id_carrera         BigInt               @id @default(autoincrement())
+  nombre_carrera     String               @db.VarChar(100)
+  id_facultad        BigInt?
+  created_at         DateTime?            @db.Timestamp(6)
+  updated_at         DateTime?            @db.Timestamp(6)
+  estado             Boolean?
+  delete_at          DateTime?            @db.Timestamp(6)
+  delete_status      Boolean?             @default(false)
+  facultad           facultad?            @relation(fields: [id_facultad], references: [id_facultad], onDelete: NoAction, onUpdate: NoAction)
+  carrera_Area       carrera_Area[]
+  estudiante_Carrera estudiante_Carrera[]
+  materia_carrera    materia_carrera[]
+  usuario_Carrera    usuario_Carrera[]
+}
+
+model casos_de_estudio {
+  id_casoEstudio BigInt    @id @default(autoincrement())
+  Nombre_Archivo String?
+  id_area        BigInt?
+  created_at     DateTime? @db.Timestamp(6)
+  updated_at     DateTime? @db.Timestamp(6)
+  url            String?
+  estado         Boolean?
+  fecha_Subida   DateTime? @db.Date
+  delete_at      DateTime? @db.Timetz(6)
+  delete_status  Boolean?  @default(false)
+  area           area?     @relation(fields: [id_area], references: [id_area], onDelete: NoAction, onUpdate: NoAction)
+  defensa        defensa[]
+}
+
+model defensa {
+  id_defensa        BigInt             @id @default(autoincrement())
+  fecha_defensa     DateTime?          @db.Timestamptz(6)
+  fecha_sorteo_area DateTime?          @db.Timestamptz(6)
+  estado            String             @db.VarChar
+  nota              Decimal?           @db.Decimal
+  created_at        DateTime?          @db.Timestamp(6)
+  updated_at        DateTime?          @db.Timestamp(6)
+  id_tipo_defensa   BigInt
+  id_estudiante     BigInt
+  id_casoEstudio    BigInt?
+  fecha_sorteo_caso DateTime?          @db.Timestamptz(6)
+  id_area           BigInt?
+  aula              String?            @db.VarChar
+  id_usuario        BigInt?
+  archivos_defensa  archivos_defensa[]
+  area              area?              @relation(fields: [id_area], references: [id_area], onDelete: NoAction, onUpdate: NoAction)
+  casos_de_estudio  casos_de_estudio?  @relation(fields: [id_casoEstudio], references: [id_casoEstudio], onDelete: NoAction, onUpdate: NoAction)
+  estudiante        estudiante         @relation(fields: [id_estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction)
+  Tipo_Defensa      Tipo_Defensa       @relation(fields: [id_tipo_defensa], references: [id_TipoDefensa], onDelete: NoAction, onUpdate: NoAction)
+  Usuario           Usuario?           @relation(fields: [id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction, map: "id_usuario_fk")
+  tribunal_defensa  tribunal_defensa[]
+}
+
+model documentos_generados {
+  id_documento      BigInt             @id @default(autoincrement())
+  datos             Json?              @db.Json
+  id_usuario        BigInt?
+  id_plantilla      BigInt?
+  created_at        DateTime?          @db.Timestamp(6)
+  updated_at        DateTime?          @db.Timestamp(6)
+  plantilla_Interna plantilla_Interna? @relation(fields: [id_plantilla], references: [id_plantilla], onDelete: NoAction, onUpdate: NoAction)
+  Usuario           Usuario?           @relation(fields: [id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model estudiante {
+  id_estudiante       BigInt                @id @default(autoincrement())
+  nroRegistro         String?               @default("SIN REGISTRO") @db.VarChar(255)
+  id_Persona          BigInt?
+  created_at          DateTime?             @db.Timestamp(6)
+  updated_at          DateTime?             @db.Timestamp(6)
+  estado              String?               @db.VarChar
+  turno_inscripcion   String?               @db.VarChar
+  turno_moda          String?               @db.VarChar
+  semestre_ingreso    String?               @db.VarChar
+  semestre_ultimo     String?               @db.VarChar
+  delete_at           DateTime?             @db.Timestamptz(6)
+  delete_state        Boolean?              @default(false)
+  defensa             defensa[]
+  Persona             Persona?              @relation(fields: [id_Persona], references: [Id_Persona], onDelete: NoAction, onUpdate: NoAction)
+  estudiante_Carrera  estudiante_Carrera[]
+  estudiantes_materia estudiantes_materia[]
+}
+
+model estudiantes_materia {
+  id_estudiante_materia BigInt           @id @default(autoincrement())
+  id_materia            BigInt?
+  id_estudiante         BigInt?
+  calificacion          Decimal?         @db.Decimal
+  created_at            DateTime?        @db.Timestamp(6)
+  updated_at            DateTime?        @db.Timestamp(6)
+  estado                String?          @db.VarChar
+  Gestion               String?          @db.VarChar
+  id_horario_materia    BigInt?
+  horario_materia       horario_materia? @relation(fields: [id_horario_materia], references: [id_horario], onDelete: NoAction, onUpdate: NoAction, map: "estudiante_materia_id_horario_materia_fkey")
+  estudiante            estudiante?      @relation(fields: [id_estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction)
+  materia               materia?         @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([id_estudiante, id_materia, Gestion], map: "uniq_est_mat_gestion")
+}
+
+model facultad {
+  id_facultad     BigInt    @id @default(autoincrement())
+  nombre_facultad String    @unique @db.VarChar(100)
+  created_at      DateTime? @db.Timestamp(6)
+  updated_at      DateTime? @db.Timestamp(6)
+  carrera         carrera[]
+}
+
+model horario_materia {
+  id_horario          BigInt                @id @default(autoincrement())
+  Modalidad           String?               @db.VarChar
+  id_materia          BigInt?
+  id_docente          BigInt?
+  created_at          DateTime?             @db.Timestamp(6)
+  updated_at          DateTime?             @db.Timestamp(6)
+  turno               String?               @db.VarChar
+  gestion             String?               @db.VarChar
+  modulo_inicio       Int?
+  grupo               String?               @db.VarChar
+  BiModular           Boolean?
+  inscritos           Int?
+  confirmados         Int?
+  estado              Boolean?
+  modulo_fin          Int?
+  horario             String?               @db.VarChar
+  estudiantes_materia estudiantes_materia[]
+  tribunal_Docente    tribunal_Docente?     @relation(fields: [id_docente], references: [id_tribunal], onDelete: NoAction, onUpdate: NoAction)
+  materia             materia?              @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model materia {
+  id_materia                                                                  BigInt                  @id @default(autoincrement())
+  created_at                                                                  DateTime?               @db.Timestamp(6)
+  updated_at                                                                  DateTime?               @db.Timestamp(6)
+  cod_materia                                                                 BigInt?                 @unique(map: "unique_cod_materia")
+  siglas_materia                                                              String?                 @db.VarChar
+  creditos                                                                    Int?
+  horas_totales                                                               Int?
+  id_tipo                                                                     BigInt?
+  nombre                                                                      String?                 @db.VarChar
+  equivalencias_materia_equivalencias_materia_id_materia_equivalenteTomateria equivalencias_materia[] @relation("equivalencias_materia_id_materia_equivalenteTomateria")
+  equivalencias_materia_equivalencias_materia_id_materia_OrigenTomateria      equivalencias_materia[] @relation("equivalencias_materia_id_materia_OrigenTomateria")
+  estudiantes_materia                                                         estudiantes_materia[]
+  horario_materia                                                             horario_materia[]
+  tipo_materia                                                                tipo_materia?           @relation(fields: [id_tipo], references: [id_tipo], onDelete: NoAction, onUpdate: NoAction, map: "id_tipoMateria")
+  materia_carrera                                                             materia_carrera[]
+  materia_preRequisito                                                        materia_preRequisito[]
+  materia_preRequisito_materia_preRequisito_id_materia_preRequisitoTomateria  materia_preRequisito[]  @relation("materia_preRequisito_id_materia_preRequisitoTomateria")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model metadatos {
+  id_Metadatos        BigInt    @id @default(autoincrement())
+  Titulo              String?   @db.VarChar(500)
+  Autor               String?
+  Tema                String?   @db.VarChar(500)
+  Fecha_Creacion      DateTime? @db.Date
+  Fecha_Actualizacion DateTime? @db.Date
+  Typo_Archivo        String?   @db.VarChar
+  modelo_Origen       String?   @db.VarChar
+  Id_Origen           BigInt?
+  created_at          DateTime? @db.Timestamp(6)
+  updated_at          DateTime? @db.Timestamp(6)
+}
+
+model plantilla_Interna {
+  id_plantilla         BigInt                 @id @default(autoincrement())
+  nombre               String?                @db.VarChar
+  contenido            String?
+  version              BigInt?
+  estado               String?                @db.VarChar(255)
+  created_at           DateTime?              @db.Timestamp(6)
+  updated_at           DateTime?              @db.Timestamp(6)
+  documentos_generados documentos_generados[]
+}
+
+model tribunal_Docente {
+  id_tribunal      BigInt             @id @default(autoincrement())
+  Id_TipoTribunal  BigInt?
+  id_Persona       BigInt?
+  created_at       DateTime?          @db.Timestamp(6)
+  updated_at       DateTime?          @db.Timestamp(6)
+  estado           Boolean?
+  nroAgenda        String?            @db.VarChar
+  delete_at        DateTime?          @db.Timestamp(6)
+  delete_state     Boolean?           @default(false)
+  Contrato_Docente Contrato_Docente[]
+  area_Tribunal    area_Tribunal[]
+  horario_materia  horario_materia[]
+  Tipo_Tribunal    Tipo_Tribunal?     @relation(fields: [Id_TipoTribunal], references: [id_TipoTribunal], onDelete: NoAction, onUpdate: NoAction)
+  Persona          Persona?           @relation(fields: [id_Persona], references: [Id_Persona], onDelete: NoAction, onUpdate: NoAction)
+  tribunal_defensa tribunal_defensa[]
+}
+
+model tribunal_defensa {
+  id_tribunalDefensa BigInt            @id @default(autoincrement())
+  fecha_Asignacion   BigInt
+  id_tribunal        BigInt?
+  id_defensa         BigInt
+  created_at         DateTime?         @db.Timestamp(6)
+  updated_at         DateTime?         @db.Timestamp(6)
+  defensa            defensa           @relation(fields: [id_defensa], references: [id_defensa], onDelete: NoAction, onUpdate: NoAction)
+  tribunal_Docente   tribunal_Docente? @relation(fields: [id_tribunal], references: [id_tribunal], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model estudiante_Carrera {
+  Id_CarreraEstudiante BigInt      @id(map: "Id_CarreraEstudiante") @default(autoincrement())
+  Id_Estudiante        BigInt?
+  Id_Carrera           BigInt?
+  carrera              carrera?    @relation(fields: [Id_Carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "Id_Carrera")
+  estudiante           estudiante? @relation(fields: [Id_Estudiante], references: [id_estudiante], onDelete: NoAction, onUpdate: NoAction, map: "Id_Estudiante")
+}
+
+model Modulos {
+  Id_Modulo          BigInt               @id @default(autoincrement())
+  Nombre             String?              @db.VarChar
+  rol_Modulo_Permiso rol_Modulo_Permiso[]
+}
+
+model Permisos {
+  Id_Permiso         BigInt               @id @default(autoincrement())
+  Nombre             String?              @db.VarChar
+  Descripcion        String?              @db.VarChar
+  rol_Modulo_Permiso rol_Modulo_Permiso[]
+}
+
+model Usuario_Rol {
+  Id_Usuario_Rol BigInt   @id(map: "Id_Usuario_Rol") @default(autoincrement())
+  Id_Usuario     BigInt?
+  Id_Rol         BigInt?
+  Rol            Rol?     @relation(fields: [Id_Rol], references: [id_Rol], onDelete: NoAction, onUpdate: NoAction, map: "Id_Rol")
+  Usuario        Usuario? @relation(fields: [Id_Usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction, map: "Id_Usuario")
+}
+
+model rol_Modulo_Permiso {
+  Id_Permiso_Modulo BigInt    @id(map: " Id_Permiso_Modulo") @default(autoincrement())
+  Id_Modulo         BigInt?
+  Id_Permiso        BigInt?
+  Id_Rol            BigInt?
+  Modulos           Modulos?  @relation(fields: [Id_Modulo], references: [Id_Modulo], onDelete: NoAction, onUpdate: NoAction, map: "Id_Modulo")
+  Permisos          Permisos? @relation(fields: [Id_Permiso], references: [Id_Permiso], onDelete: NoAction, onUpdate: NoAction, map: "Id_Permiso")
+  Rol               Rol?      @relation(fields: [Id_Rol], references: [id_Rol], onDelete: NoAction, onUpdate: NoAction, map: "Id_Rol")
+
+  @@unique([Id_Rol, Id_Modulo, Id_Permiso], name: "rol_modulo_permiso_unique")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model carrera_Area {
+  Id_CarreraArea BigInt   @id(map: " Id_CarreraArea") @default(autoincrement())
+  Id_Carrera     BigInt?
+  Id_Area        BigInt?
+  area           area?    @relation(fields: [Id_Area], references: [id_area], onDelete: NoAction, onUpdate: NoAction, map: "Id_Area")
+  carrera        carrera? @relation(fields: [Id_Carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "Id_Carrera")
+}
+
+model materia_carrera {
+  id_materiaCarrera BigInt   @id @default(autoincrement())
+  id_materia        BigInt?
+  id_carrera        BigInt?
+  semestre          String?  @db.VarChar
+  numero_pensum     BigInt?
+  carrera           carrera? @relation(fields: [id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "id_carrera")
+  materia           materia? @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia")
+}
+
+model materia_preRequisito {
+  id_materiaPrerequisito                                        BigInt   @id @default(autoincrement())
+  id_materia                                                    BigInt?
+  id_materia_preRequisito                                       BigInt?
+  total_materia                                                 Int?
+  materia                                                       materia? @relation(fields: [id_materia], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia")
+  materia_materia_preRequisito_id_materia_preRequisitoTomateria materia? @relation("materia_preRequisito_id_materia_preRequisitoTomateria", fields: [id_materia_preRequisito], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_preRequisito")
+}
+
+model tipo_materia {
+  id_tipo BigInt    @id @default(autoincrement())
+  nombre  String?   @db.VarChar
+  materia materia[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model equivalencias_materia {
+  id_equivalencia                                               BigInt  @id @default(autoincrement())
+  id_materia_Origen                                             BigInt  @default(autoincrement())
+  id_materia_equivalente                                        BigInt  @default(autoincrement())
+  materia_equivalencias_materia_id_materia_equivalenteTomateria materia @relation("equivalencias_materia_id_materia_equivalenteTomateria", fields: [id_materia_equivalente], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_equivalente")
+  materia_equivalencias_materia_id_materia_OrigenTomateria      materia @relation("equivalencias_materia_id_materia_OrigenTomateria", fields: [id_materia_Origen], references: [id_materia], onDelete: NoAction, onUpdate: NoAction, map: "id_materia_origen")
+}
+
+model usuario_Carrera {
+  Id_usuario_carrera BigInt   @id(map: "rol_Carrera_pkey") @default(autoincrement())
+  Id_usuario         BigInt?
+  Id_carrera         BigInt?
+  carrera            carrera? @relation(fields: [Id_carrera], references: [id_carrera], onDelete: NoAction, onUpdate: NoAction, map: "id_carrera")
+  Usuario            Usuario? @relation(fields: [Id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction, map: "id_usaurioCarrera")
+
+  @@unique([Id_usuario, Id_carrera], map: "rol_Carrera_Id_rol_Id_carrera_key")
+}
+
+model modulo_periodo {
+  id_modulo_Periodo BigInt    @id @default(autoincrement())
+  gestion           String?   @db.VarChar
+  modulo            String?   @db.VarChar
+  fecha_Inicio      DateTime? @db.Date
+  fecha_Fin         DateTime? @db.Date
+  modalidad         String?   @db.VarChar
+  created_at_       DateTime? @map("created_at ") @db.Timestamp(6)
+  updated_at        DateTime? @db.Timestamptz(6)
+}
+
+
+model WhatsAppSession {
+  id         BigInt    @id @default(autoincrement())
+  session_id String    @unique @db.VarChar(100)
+  zip_data   Bytes     
+  data       Json      @db.Json
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  updated_at DateTime  @updatedAt @db.Timestamp(6)
+  expires_at DateTime? @db.Timestamp(6)
+
+  @@map("whatsapp_sessions")
+}
+>>>>>>> 45dec951d2527a6b4dd53e8b7d4cda1e49a9f983

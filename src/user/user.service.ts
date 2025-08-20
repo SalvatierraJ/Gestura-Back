@@ -5,6 +5,11 @@ import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from "crypto";
 
+const USER_INCLUDE = { Persona: true, Usuario_Rol: true } as const;
+
+function normalizeEmail(email: string) {
+    return email.trim().toLowerCase();
+}
 
 @Injectable()
 export class UserService {
@@ -79,7 +84,7 @@ export class UserService {
     async findOneUser(username: string) {
         try {
             const user = await this.prisma.usuario.findFirst({
-                where: { Nombre_Usuario: username }
+                where: { Nombre_Usuario: username, delete_state: false }
             })
             if (user) return user;
             return null;
@@ -91,7 +96,7 @@ export class UserService {
     async getUserById(id: bigint) {
         try {
             const user = await this.prisma.usuario.findFirst({
-                where: { Id_Usuario: id },
+                where: { Id_Usuario: id, delete_state: false },
                 include: {
                     Persona: true,
                     Usuario_Rol: {
@@ -176,6 +181,7 @@ export class UserService {
             const take = Number(pageSize);
 
             const allUsers = await this.prisma.usuario.findMany({
+                where: { delete_state: false },
                 include: {
                     Persona: {
                         select: {
@@ -375,55 +381,142 @@ export class UserService {
     }
 
     async findUserByEmail(email: string) {
+        const normEmail = normalizeEmail(email);
         return this.prisma.usuario.findFirst({
-            where: { Nombre_Usuario: email },
-            include: { Persona: true },
+            where: { Nombre_Usuario: normEmail },
+            include: USER_INCLUDE,
         });
     }
 
     async findPersonaByEmail(email: string) {
+        const normEmail = normalizeEmail(email);
         return this.prisma.persona.findFirst({
-            where: { Correo: email },
+            where: { Correo: normEmail },
         });
     }
 
-    async createOrGetOauthUser({ email, name }: { email: string; name?: string }) {
-        let user = await this.findUserByEmail(email);
-        if (user) return user;
+    async createOrGetOauthUser({
+        email,
+        name,
+    }: {
+        email: string;
+        name?: string;
+    }) {
+        const normEmail = normalizeEmail(email);
+        const found = await this.findUserByEmail(normEmail);
+        if (found) return found;
 
-        let persona = await this.findPersonaByEmail(email);
+        try {
+            const user = await this.prisma.$transaction(async (tx: any) => {
+                const persona = await tx.persona.upsert({
+                    where: { Correo: normEmail },
+                    update: {},
+                    create: {
+                        Nombre: name ?? "",
+                        Correo: normEmail,
+                        Apellido1: "",
+                        Apellido2: "",
+                        CI: "",
+                    },
+                });
 
-        if (!persona) {
-            persona = await this.prisma.persona.create({
-                data: {
-                    Nombre: name ?? "",
-                    Correo: email,
-                    Apellido1: "",
-                    Apellido2: "",
-                    CI: "",
-                    created_at: new Date(),
-                    updated_at: new Date(),
+                const existingUser = await tx.usuario.findFirst({
+                    where: { Id_Persona: Number(persona.Id_Persona) },
+                    include: USER_INCLUDE,
+                });
+                if (existingUser) return existingUser;
+
+                const rolVisitante = await tx.rol.findFirst({
+                    where: { Nombre: { equals: "Visitante", mode: "insensitive" } },
+                    select: { id_Rol: true },
+                });
+                if (!rolVisitante) {
+                    throw new Error("El rol 'Visitante' no existe. Créalo antes de continuar.");
                 }
+
+                const randomPassword = randomBytes(32).toString("hex");
+
+                const nuevoUsuario = await tx.usuario.create({
+                    data: {
+                        Nombre_Usuario: normEmail,
+                        Password: randomPassword,
+                        Id_Persona: Number(persona.Id_Persona),
+                        Usuario_Rol: {
+                            create: {
+                                Id_Rol: rolVisitante.id_Rol,
+                            },
+                        },
+                    },
+                    include: USER_INCLUDE,
+                });
+
+                return nuevoUsuario;
             });
+
+            return user;
+        } catch (err: any) {
+            if (err?.code === "P2002") {
+                const again = await this.findUserByEmail(normEmail);
+                if (again) return again;
+
+                const persona = await this.findPersonaByEmail(normEmail);
+                if (persona) {
+                    const byPersona = await this.prisma.usuario.findFirst({
+                        where: { Id_Persona: Number(persona.Id_Persona) },
+                        include: USER_INCLUDE,
+                    });
+                    if (byPersona) return byPersona;
+                }
+            }
+            throw err;
         }
-        const rol = await this.prisma.rol.findFirst({
-            where: { Nombre: { contains: "Visitante", mode: "insensitive" } },
-            select: { id_Rol: true },
+    }
+
+    async softDeleteUsuario(idUsuario: number) {
+        const user = await this.prisma.usuario.findUnique({
+            where: { Id_Usuario: idUsuario },
+            select: { Id_Usuario: true, delete_state: true },
         });
-        const randomPassword = randomBytes(16).toString("hex");
-        const userData = {
-            Nombre_Usuario: email,
-            Password: randomPassword,
-            Id_Persona: Number(persona.Id_Persona),
-            created_at: new Date(),
-            updated_at: new Date(),
-            Usuario_Rol: {
-                create: {
-                    Id_Rol: rol?.id_Rol ?? null,
-                }}
-        };
-        user = await this.prisma.usuario.create({ data: userData, include: { Persona: true } });
-        return user;
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+
+        if (user.delete_state) {
+            return { message: 'Usuario ya está eliminado lógicamente', id: idUsuario };
+        }
+
+        await this.prisma.usuario.update({
+            where: { Id_Usuario: idUsuario },
+            data: {
+                delete_state: true,
+                delete_at: new Date(),
+                updated_at: new Date(),
+            },
+        });
+
+        return { message: 'Usuario eliminado lógicamente', id: idUsuario };
+    }
+
+
+    async restoreUsuario(idUsuario: number) {
+        const user = await this.prisma.usuario.findUnique({
+            where: { Id_Usuario: idUsuario },
+            select: { Id_Usuario: true, delete_state: true },
+        });
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+
+        if (!user.delete_state) {
+            return { message: 'Usuario no está eliminado', id: idUsuario };
+        }
+
+        await this.prisma.usuario.update({
+            where: { Id_Usuario: idUsuario },
+            data: {
+                delete_state: false,
+                delete_at: null,
+                updated_at: new Date(),
+            },
+        });
+
+        return { message: 'Usuario restaurado correctamente', id: idUsuario };
     }
 
 }

@@ -3,309 +3,359 @@ import { PrismaService } from 'src/database/prisma.services';
 
 @Injectable()
 export class CasosEstudioService {
+  constructor(private prisma: PrismaService) {}
 
-    constructor(private prisma: PrismaService) { }
-    async createCasoEstudio(Titulo: string, Autor: string, Tema: string, Fecha_Creacion: Date, id_area: number, url: string) {
-        try {
-            const newCasoEstudio = await this.prisma.casos_de_estudio.create({
-                data: {
-                    Nombre_Archivo: Titulo,
-                    estado: true,
-                    fecha_Subida: Fecha_Creacion,
-                    id_area: id_area,
-                    url: url,
-                    created_at: new Date(),
-                    updated_at: new Date(),
-                }
-            });
-            await this.prisma.metadatos.create({
-                data: {
-                    Titulo: Titulo,
-                    Autor: Autor,
-                    Tema: Tema,
-                    Fecha_Creacion: Fecha_Creacion,
-                    modelo_Origen: "casos_de_estudio",
-                    Id_Origen: newCasoEstudio.id_casoEstudio,
-                    created_at: new Date(),
-                    updated_at: new Date(),
-                }
-            });
-            const { created_at, updated_at, estado, ...result } = newCasoEstudio;
-            return result;
-        } catch (error) {
-            throw new Error(`Error creating case study: ${error.message}`);
-        }
-    }
-async getfiltredCasosEstudio({ page, pageSize, user, word }) {
+  // ----- Helpers -----
+  private mapCaso(caso: any) {
+    const { created_at, updated_at, ...result } = caso;
+    return result;
+  }
+
+  // ----- Crear -----
+  async createCasoEstudio(
+    Titulo: string,
+    Autor: string,
+    Tema: string,
+    Fecha_Creacion: Date,
+    id_area: number,
+    url: string
+  ) {
     try {
-        const skip = (Number(page) - 1) * Number(pageSize);
-        const take = Number(pageSize);
+      const newCasoEstudio = await this.prisma.casos_de_estudio.create({
+        data: {
+          Nombre_Archivo: Titulo,
+          estado: true,
+          fecha_Subida: Fecha_Creacion,
+          id_area: id_area,
+          url: url,
+          delete_status: false,           // <-- no borrado
+          delete_at: null,                // <-- sin fecha de borrado
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
 
-        // 1. Obtener carreras que administra el usuario
-        const usuario = await this.prisma.usuario.findUnique({
-            where: { Id_Usuario: user },
-            include: {
-                usuario_Carrera: true
-            }
-        });
+      await this.prisma.metadatos.create({
+        data: {
+          Titulo,
+          Autor,
+          Tema,
+          Fecha_Creacion,
+          modelo_Origen: 'casos_de_estudio',
+          Id_Origen: newCasoEstudio.id_casoEstudio,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
 
-        if (!usuario) throw new Error("Usuario no encontrado");
+      return this.mapCaso(newCasoEstudio);
+    } catch (error: any) {
+      throw new Error(`Error creating case study: ${error.message}`);
+    }
+  }
 
-        const carrerasIds = usuario.usuario_Carrera
-            .map(rc => rc.Id_carrera)
-            .filter((id): id is bigint => id !== null && id !== undefined);
+  // ----- Listado con filtro por palabra (excluye borrados) -----
+  async getfiltredCasosEstudio({ page, pageSize, user, word }) {
+    try {
+      const skip = (Number(page) - 1) * Number(pageSize);
+      const take = Number(pageSize);
 
-        if (carrerasIds.length === 0) {
-            return {
-                items: [], total: 0, page: Number(page),
-                pageSize: Number(pageSize), totalPages: 0
-            };
-        }
+      const usuario = await this.prisma.usuario.findUnique({
+        where: { Id_Usuario: user },
+        include: { usuario_Carrera: true },
+      });
+      if (!usuario) throw new Error('Usuario no encontrado');
 
-        // 2. Obtener las áreas relacionadas a esas carreras
-        const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
-            where: { Id_Carrera: { in: carrerasIds } },
-            select: { Id_Area: true }
-        });
+      const carrerasIds = usuario.usuario_Carrera
+        .map((rc) => rc.Id_carrera)
+        .filter((id): id is bigint => id !== null && id !== undefined);
 
-        const areaIds = [
-            ...new Set(
-                areaCarreraLinks
-                    .map(link => link.Id_Area)
-                    .filter((id): id is bigint => id !== null && id !== undefined)
-            )
-        ];
-
-        if (areaIds.length === 0) {
-            return {
-                items: [], total: 0, page: Number(page),
-                pageSize: Number(pageSize), totalPages: 0
-            };
-        }
-
-        // --- INICIO DE LA MODIFICACIÓN ---
-
-        // 3. Construir la cláusula de filtro dinámicamente
-        const whereClause = {
-            id_area: { in: areaIds },
-            // Añadimos esta condición si 'word' tiene un valor
-            ...(word && {
-                Nombre_Archivo: {
-                    contains: word,
-                    mode: 'insensitive', // Para que la búsqueda no distinga mayúsculas/minúsculas
-                },
-            }),
-        };
-
-        // 4. Filtrar casos de estudio usando la nueva cláusula
-        const total = await this.prisma.casos_de_estudio.count({
-            where: whereClause // Usamos la cláusula aquí
-        });
-
-        const casosEstudio = await this.prisma.casos_de_estudio.findMany({
-            where: whereClause, // Y aquí también
-            skip,
-            take,
-            include: { area: true }
-        });
-        
-        // --- FIN DE LA MODIFICACIÓN ---
-
-        const metadatos = await this.prisma.metadatos.findMany({
-            where: {
-                modelo_Origen: "casos_de_estudio",
-                Id_Origen: { in: casosEstudio.map(caso => caso.id_casoEstudio) }
-            },
-            select: {
-                Id_Origen: true,
-                Titulo: true,
-                Autor: true,
-                Tema: true,
-                Fecha_Creacion: true
-            }
-        });
-
-        const items = casosEstudio.map(caso => {
-            const metadata = metadatos.find(meta => meta.Id_Origen === caso.id_casoEstudio);
-            if (!metadata) {
-                // Considera manejar este caso de forma más robusta si es posible que no exista metadata
-                return null; 
-            }
-            const { created_at, updated_at, area, ...result } = caso;
-            const areaName = area ? area.nombre_area : null;
-            return { ...result, areaName, ...metadata };
-        }).filter(Boolean); // Filtra los posibles nulos
-
+      if (carrerasIds.length === 0) {
         return {
-            items,
-            total,
-            page: Number(page),
-            pageSize: Number(pageSize),
-            totalPages: Math.ceil(total / pageSize)
+          items: [],
+          total: 0,
+          page: Number(page),
+          pageSize: Number(pageSize),
+          totalPages: 0,
         };
-    } catch (error) {
-        throw new Error(`Error fetching case studies: ${error.message}`);
+      }
+
+      const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+        where: { Id_Carrera: { in: carrerasIds } },
+        select: { Id_Area: true },
+      });
+
+      const areaIds = [
+        ...new Set(
+          areaCarreraLinks
+            .map((l) => l.Id_Area)
+            .filter((id): id is bigint => id !== null && id !== undefined)
+        ),
+      ];
+      if (areaIds.length === 0) {
+        return {
+          items: [],
+          total: 0,
+          page: Number(page),
+          pageSize: Number(pageSize),
+          totalPages: 0,
+        };
+      }
+
+      const whereClause: any = {
+        id_area: { in: areaIds },
+        delete_status: { not: true },
+        delete_at: null,             
+        ...(word && {
+          Nombre_Archivo: { contains: word, mode: 'insensitive' },
+        }),
+      };
+
+      const total = await this.prisma.casos_de_estudio.count({ where: whereClause });
+
+      const casosEstudio = await this.prisma.casos_de_estudio.findMany({
+        where: whereClause,
+        skip,
+        take,
+        include: { area: true },
+        orderBy: { id_casoEstudio: 'desc' },
+      });
+
+      const metadatos = await this.prisma.metadatos.findMany({
+        where: {
+          modelo_Origen: 'casos_de_estudio',
+          Id_Origen: { in: casosEstudio.map((c) => c.id_casoEstudio) },
+        },
+        select: {
+          Id_Origen: true,
+          Titulo: true,
+          Autor: true,
+          Tema: true,
+          Fecha_Creacion: true,
+        },
+      });
+
+      const items = casosEstudio
+        .map((caso) => {
+          const meta = metadatos.find((m) => m.Id_Origen === caso.id_casoEstudio);
+          const { area, ...base } = this.mapCaso(caso);
+          return { ...base, areaName: area?.nombre_area ?? null, ...(meta || {}) };
+        })
+        .filter(Boolean);
+
+      return {
+        items,
+        total,
+        page: Number(page),
+        pageSize: Number(pageSize),
+        totalPages: Math.ceil(total / pageSize),
+      };
+    } catch (error: any) {
+      throw new Error(`Error fetching case studies: ${error.message}`);
     }
-}
+  }
 
-    async getAllCasosEstudio({ page, pageSize, user }) {
-        try {
-            const skip = (Number(page) - 1) * Number(pageSize);
-            const take = Number(pageSize);
+  // ----- Listado general (excluye borrados) -----
+  async getAllCasosEstudio({ page, pageSize, user }) {
+    try {
+      const skip = (Number(page) - 1) * Number(pageSize);
+      const take = Number(pageSize);
 
-            // 1. Obtener carreras que administra el usuario
-            const usuario = await this.prisma.usuario.findUnique({
-                where: { Id_Usuario: user },
-                include: {
-                    usuario_Carrera:true
-                }
-            });
+      const usuario = await this.prisma.usuario.findUnique({
+        where: { Id_Usuario: user },
+        include: { usuario_Carrera: true },
+      });
+      if (!usuario) throw new Error('Usuario no encontrado');
 
-            if (!usuario) throw new Error("Usuario no encontrado");
+      const carrerasIds = usuario.usuario_Carrera
+        .map((rc) => rc.Id_carrera)
+        .filter((id): id is bigint => id !== null && id !== undefined);
 
-            const carrerasIds = usuario.usuario_Carrera
-                .map(rc => rc.Id_carrera)
-                .filter((id): id is bigint => id !== null && id !== undefined);
+      if (carrerasIds.length === 0) {
+        return {
+          items: [],
+          total: 0,
+          page: Number(page),
+          pageSize: Number(pageSize),
+          totalPages: 0,
+        };
+      }
 
-            if (carrerasIds.length === 0) {
-                return {
-                    items: [],
-                    total: 0,
-                    page: Number(page),
-                    pageSize: Number(pageSize),
-                    totalPages: 0
-                };
-            }
+      const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
+        where: { Id_Carrera: { in: carrerasIds } },
+        select: { Id_Area: true },
+      });
 
-            // 2. Obtener las áreas relacionadas a esas carreras
-            const areaCarreraLinks = await this.prisma.carrera_Area.findMany({
-                where: { Id_Carrera: { in: carrerasIds } },
-                select: { Id_Area: true }
-            });
+      const areaIds = [
+        ...new Set(
+          areaCarreraLinks
+            .map((l) => l.Id_Area)
+            .filter((id): id is bigint => id !== null && id !== undefined)
+        ),
+      ];
+      if (areaIds.length === 0) {
+        return {
+          items: [],
+          total: 0,
+          page: Number(page),
+          pageSize: Number(pageSize),
+          totalPages: 0,
+        };
+      }
 
-            const areaIds = [
-                ...new Set(
-                    areaCarreraLinks
-                        .map(link => link.Id_Area)
-                        .filter((id): id is bigint => id !== null && id !== undefined)
-                )
-            ];
+      const whereClause = {
+        id_area: { in: areaIds },
+        delete_status: { not: true }, // <-- excluye borrados
+        delete_at: null,              // <-- excluye borrados
+      };
 
-            if (areaIds.length === 0) {
-                return {
-                    items: [],
-                    total: 0,
-                    page: Number(page),
-                    pageSize: Number(pageSize),
-                    totalPages: 0
-                };
-            }
+      const total = await this.prisma.casos_de_estudio.count({ where: whereClause });
 
-            // 3. Filtrar casos de estudio por esas áreas
-            const total = await this.prisma.casos_de_estudio.count({
-                where: { id_area: { in: areaIds } }
-            });
+      const casosEstudio = await this.prisma.casos_de_estudio.findMany({
+        where: whereClause,
+        skip,
+        take,
+        include: { area: true },
+        orderBy: { id_casoEstudio: 'desc' },
+      });
 
-            const casosEstudio = await this.prisma.casos_de_estudio.findMany({
-                where: { id_area: { in: areaIds } },
-                skip,
-                take,
-                include: { area: true }
-            });
+      const metadatos = await this.prisma.metadatos.findMany({
+        where: {
+          modelo_Origen: 'casos_de_estudio',
+          Id_Origen: { in: casosEstudio.map((c) => c.id_casoEstudio) },
+        },
+        select: {
+          Id_Origen: true,
+          Titulo: true,
+          Autor: true,
+          Tema: true,
+          Fecha_Creacion: true,
+        },
+      });
 
-            const metadatos = await this.prisma.metadatos.findMany({
-                where: {
-                    modelo_Origen: "casos_de_estudio",
-                    Id_Origen: { in: casosEstudio.map(caso => caso.id_casoEstudio) }
-                },
-                select: {
-                    Id_Origen: true,
-                    Titulo: true,
-                    Autor: true,
-                    Tema: true,
-                    Fecha_Creacion: true
-                }
-            });
+      const items = casosEstudio
+        .map((caso) => {
+          const meta = metadatos.find((m) => m.Id_Origen === caso.id_casoEstudio);
+          const { area, ...base } = this.mapCaso(caso);
+          return { ...base, areaName: area?.nombre_area ?? null, ...(meta || {}) };
+        })
+        .filter(Boolean);
 
-            const items = casosEstudio.map(caso => {
-                const metadata = metadatos.find(meta => meta.Id_Origen === caso.id_casoEstudio);
-                if (!metadata) {
-                    throw new Error(`Metadata not found for case study ID ${caso.id_casoEstudio}`);
-                }
-                const { created_at, updated_at, area, ...result } = caso;
-                const areaName = area ? area.nombre_area : null;
-                return { ...result, areaName, ...metadata };
-            }).filter(Boolean);
+      return {
+        items,
+        total,
+        page: Number(page),
+        pageSize: Number(pageSize),
+        totalPages: Math.ceil(total / pageSize),
+      };
+    } catch (error: any) {
+      throw new Error(`Error fetching case studies: ${error.message}`);
+    }
+  }
 
-            return {
-                items,
-                total,
-                page: Number(page),
-                pageSize: Number(pageSize),
-                totalPages: Math.ceil(total / pageSize)
-            };
-        } catch (error) {
-            throw new Error(`Error fetching case studies: ${error.message}`);
-        }
+  // ----- Endpoint unificado: visibilidad o borrado/restauración -----
+  async updateStateOrDeleteCasoEstudio(id: bigint, body: any) {
+    // Borrado lógico
+    if (body.delete === true) {
+      const updated = await this.prisma.casos_de_estudio.update({
+        where: { id_casoEstudio: id },
+        data: {
+          delete_status: true,
+          estado: false, 
+          delete_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
+      return this.mapCaso(updated);
     }
 
-    async updateStateCasoEstudio(id: bigint, body: any) {
-        try {
-            const updatedcaso = await this.prisma.casos_de_estudio.update({
-                where: { id_casoEstudio: id },
-                data: {
-                    estado: body.estado,
-                    updated_at: new Date(),
-                }
-            });
-            const { created_at, updated_at, ...result } = updatedcaso;
-            return result;
-        } catch (error) {
-            throw new Error(`Error updating caso state: ${error.message}`);
-        }
+    // Restaurar (con validación de duplicado por título en la misma área)
+    if (body.delete === false) {
+      const c = await this.prisma.casos_de_estudio.findUnique({
+        where: { id_casoEstudio: id },
+        select: { id_area: true, Nombre_Archivo: true },
+      });
+      if (!c) throw new Error('Caso de estudio no encontrado');
+
+      const dup = await this.prisma.casos_de_estudio.findFirst({
+        where: {
+          id_casoEstudio: { not: id },
+          delete_status: { not: true },
+          delete_at: null,
+          
+          id_area: c.id_area,
+          Nombre_Archivo: { equals: c.Nombre_Archivo, mode: 'insensitive' },
+        },
+        select: { id_casoEstudio: true },
+      });
+      if (dup) {
+        throw new Error(
+          'No se puede restaurar: ya existe un caso activo con ese título en la misma área'
+        );
+      }
+
+      const restored = await this.prisma.casos_de_estudio.update({
+        where: { id_casoEstudio: id },
+        data: {
+          delete_status: false,
+          delete_at: null,
+          estado: true, 
+          updated_at: new Date(),
+        },
+      });
+      return this.mapCaso(restored);
     }
 
-
-    async updateCasoEstudio(
-        id_casoEstudio: number,
-        datos: {
-            Titulo: string,
-            Autor: string,
-            Tema: string,
-            Fecha_Creacion: Date,
-            id_area: number,
-        }
-    ) {
-        try {
-            const updatedCaso = await this.prisma.casos_de_estudio.update({
-                where: { id_casoEstudio },
-                data: {
-                    Nombre_Archivo: datos.Titulo,
-                    fecha_Subida: datos.Fecha_Creacion,
-                    id_area: datos.id_area,
-                    updated_at: new Date(),
-                },
-            });
-
-            await this.prisma.metadatos.updateMany({
-                where: {
-                    modelo_Origen: "casos_de_estudio",
-                    Id_Origen: id_casoEstudio,
-                },
-                data: {
-                    Titulo: datos.Titulo,
-                    Autor: datos.Autor,
-                    Tema: datos.Tema,
-                    Fecha_Creacion: datos.Fecha_Creacion,
-                    updated_at: new Date(),
-                },
-            });
-
-            return { success: true, data: updatedCaso };
-        } catch (error) {
-            throw new Error(`Error updating case study: ${error.message}`);
-        }
+    // Cambiar visibilidad
+    if (typeof body.estado === 'boolean') {
+      const updated = await this.prisma.casos_de_estudio.update({
+        where: { id_casoEstudio: id },
+        data: { estado: body.estado, updated_at: new Date() },
+      });
+      return this.mapCaso(updated);
     }
+
+    throw new Error('Petición inválida para updateStateOrDeleteCasoEstudio');
+  }
+
+  // ----- Mantener edición (sin cambios funcionales) -----
+  async updateCasoEstudio(
+    id_casoEstudio: number,
+    datos: {
+      Titulo: string;
+      Autor: string;
+      Tema: string;
+      Fecha_Creacion: Date;
+      id_area: number;
+    }
+  ) {
+    try {
+      const updatedCaso = await this.prisma.casos_de_estudio.update({
+        where: { id_casoEstudio },
+        data: {
+          Nombre_Archivo: datos.Titulo,
+          fecha_Subida: datos.Fecha_Creacion,
+          id_area: datos.id_area,
+          updated_at: new Date(),
+        },
+      });
+
+      await this.prisma.metadatos.updateMany({
+        where: { modelo_Origen: 'casos_de_estudio', Id_Origen: id_casoEstudio },
+        data: {
+          Titulo: datos.Titulo,
+          Autor: datos.Autor,
+          Tema: datos.Tema,
+          Fecha_Creacion: datos.Fecha_Creacion,
+          updated_at: new Date(),
+        },
+      });
+
+      return { success: true, data: updatedCaso };
+    } catch (error: any) {
+      throw new Error(`Error updating case study: ${error.message}`);
+    }
+  }
 
 
 }

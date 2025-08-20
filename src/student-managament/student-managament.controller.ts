@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Post, Put, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { DefensaService } from 'src/defensa/defensa.service';
+import { UpdateEstudianteStateOrDeleteDto } from 'src/estudiante/dto/update-estado-o-borrado.dto';
 import { EstudianteService } from 'src/estudiante/estudiante.service';
 
 @Controller('student-managament')
@@ -8,13 +9,21 @@ export class StudentManagamentController {
 
     constructor(private estudianteService: EstudianteService, private defensaService: DefensaService) { }
     @UseGuards(JwtAuthGuard)
-    @Get('/estudiantes/:page/:pageSize')
-    async getAllCarreras(@Request() req) {
-        const user = req.user;
-        const page = Number(req.params.page);
-        const pageSize = Number(req.params.pageSize);
-        return this.estudianteService.getAllEstudiantes({ page, pageSize, user: user.userId });
+    @Get('/estudiantes')
+    async getAll(
+        @Query('page') page = '1',
+        @Query('pageSize') pageSize = '10',
+        @Query('word') word = '',
+        @Request() req: any,
+    ) {
+        return this.estudianteService.getAllEstudiantes({
+            page: Number(page),
+            pageSize: Number(pageSize),
+            user: Number(req.user?.userId),
+            word,
+        });
     }
+<<<<<<< HEAD
     //Filtrado de estudiantes por palabra
     @UseGuards(JwtAuthGuard)
     @Get('/estudiantes/:page/:pageSize/:word')
@@ -24,7 +33,17 @@ export class StudentManagamentController {
         const pageSize = Number(req.params.pageSize);
         const word = String(req.params.word);
         return this.estudianteService.getAllEstudiantesFiltred({page, pageSize, user: user.userId, word});
+=======
+
+    @Put('/estudiante/:id/estado-o-borrado')
+    updateEstadoOBorrado(
+        @Param('id') id: string,
+        @Body() body:  UpdateEstudianteStateOrDeleteDto,
+    ) {
+        return this.estudianteService.updateStateOrDeleteEstudiante(Number(id), body);
+>>>>>>> 45dec951d2527a6b4dd53e8b7d4cda1e49a9f983
     }
+
 
     @Post('/nuevo-estudiante')
     async createCarrera(@Body() body: any) {
@@ -44,7 +63,7 @@ export class StudentManagamentController {
             : [Number(body.estudianteIds)];
         return this.defensaService.generarDefensa(estudianteIds, body);
     }
-    @Post('/estudiantes-masivo')        
+    @Post('/estudiantes-masivo')
     async createMasiveSudents(@Body() body: any) {
         return this.estudianteService.createEstudiantesMasivos(body);
     }

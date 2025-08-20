@@ -31,6 +31,15 @@ import { ProfileCheckMiddleware } from './common/middleware/profile-check.middle
 import { PlantillaModule} from './plantilla/plantilla.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JWT_KEY } from '../constants/jwt-key';
+import { RedisService } from './redis/redis.service';
+import { ChatbotService } from './chatbot/chatbot.service';
+import { ChatbotModule } from './chatbot/chatbot.module';
+import { RedisModule } from './redis/redis.module';
+import { GeminiService } from './gemini/gemini.service';
+import { IaService } from './ia/ia.service';
+import { IaModule } from './ia/ia.module';
+import { ModuloPeriodoService } from './modulo-periodo/modulo-periodo.service';
+import { ModuloPeriodoModule } from './modulo-periodo/modulo-periodo.module';
 
 @Module({
   imports: [
@@ -74,9 +83,17 @@ import { JWT_KEY } from '../constants/jwt-key';
     ModulosModule,
     MateriaModule,
     RegistroMateriaModule,
+<<<<<<< HEAD
     PlantillaModule
+=======
+    ChatbotModule,
+    RedisModule,
+    IaModule,
+    ModuloPeriodoModule
+
+>>>>>>> 45dec951d2527a6b4dd53e8b7d4cda1e49a9f983
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService, CasosEstudioService],
+  providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService, IaService, ModuloPeriodoService],
 })
 export class AppModule { }

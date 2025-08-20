@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import { NotificacionService } from 'src/notificacion/notificacion.service';
 
@@ -10,121 +10,438 @@ export class DefensaService {
     ) { }
 
     async generarDefensa(estudiantes: number[] | number, body: any) {
-        console.log("IDs recibidos para sortear defensa:", estudiantes);
-        console.log("body", body);
         const estudiantesIds = Array.isArray(estudiantes) ? estudiantes : [estudiantes];
         const { sorteaArea, sorteaCaso, tipoDefensa } = body;
         const fechaDefensa = new Date(body.fechaDefensa || body.fechaHora);
         const defensasCreadas: any[] = [];
 
+        const shuffle = <T,>(arr: T[]): T[] => {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        };
+
         return await this.prisma.$transaction(async (tx) => {
+            // Casos ya usados en la fecha (prohibido repetir en la misma fecha)
             const defensasMismaFecha = await tx.defensa.findMany({
-                where: {
-                    fecha_defensa: fechaDefensa,
-                    id_casoEstudio: { not: null }
-                },
+                where: { fecha_defensa: fechaDefensa, id_casoEstudio: { not: null } },
                 select: { id_casoEstudio: true }
             });
-            const casosYaAsignados = new Set(defensasMismaFecha.map(d => d.id_casoEstudio?.toString()));
+            const casosYaAsignadosEnFecha = new Set(defensasMismaFecha.map(d => d.id_casoEstudio!.toString()));
 
-            const tipo = await tx.tipo_Defensa.findFirst({
-                where: { Nombre: tipoDefensa }
+            // Conteo histórico de usos por caso (para no superar 2)
+            const usosHistoricos = await tx.defensa.groupBy({
+                by: ['id_casoEstudio'],
+                _count: { id_casoEstudio: true },
+                where: { id_casoEstudio: { not: null } }
             });
+            const totalUsosCaso = new Map<string, number>();
+            for (const row of usosHistoricos) {
+                if (row.id_casoEstudio != null) {
+                    totalUsosCaso.set(row.id_casoEstudio.toString(), row._count.id_casoEstudio);
+                }
+            }
+
+            // Helper: elegir un caso en un área cumpliendo restricciones
+            const pickCasoEnArea = async (idArea: number) => {
+                const casos = await tx.casos_de_estudio.findMany({
+                    where: { id_area: idArea, estado: true },
+                    select: { id_casoEstudio: true, Nombre_Archivo: true }
+                });
+
+                // Filtrar por: no usado en la fecha y uso total < 2
+                const candidatos = casos.filter(c => {
+                    const idStr = c.id_casoEstudio.toString();
+                    const usadosFecha = casosYaAsignadosEnFecha.has(idStr);
+                    const usosTotales = totalUsosCaso.get(idStr) ?? 0;
+                    return !usadosFecha && usosTotales < 2;
+                });
+
+                if (!candidatos.length) return null;
+                const idx = candidatos.length === 1 ? 0 : Math.floor(Math.random() * candidatos.length);
+                const elegido = candidatos[idx];
+                return {
+                    id: Number(elegido.id_casoEstudio),
+                    nombre: elegido.Nombre_Archivo || null,
+                };
+            };
+
+            const tipo = await tx.tipo_Defensa.findFirst({ where: { Nombre: tipoDefensa } });
             if (!tipo) throw new HttpException("Tipo de defensa no encontrado", 400);
 
-            for (const idEstudiante of estudiantesIds) {
+            for (const idEstudianteRaw of estudiantesIds) {
+                const idEstudiante = Number(idEstudianteRaw);
+
                 const estudiante = await tx.estudiante.findUnique({
-                    where: { id_estudiante: Number(idEstudiante) }, // por si llega string
+                    where: { id_estudiante: idEstudiante },
                     include: { estudiante_Carrera: { include: { carrera: true } } }
                 });
                 if (!estudiante) throw new HttpException("Estudiante no encontrado", 400);
                 if (!estudiante.estudiante_Carrera?.length) throw new Error("Estudiante sin carrera");
 
                 const idCarrera = estudiante.estudiante_Carrera[0].Id_Carrera;
+
+                // Áreas relacionadas DISPONIBLES
                 const areasRelacionadas = await tx.carrera_Area.findMany({
-                    where: { Id_Carrera: idCarrera },
+                    where: { Id_Carrera: idCarrera, area: { estado: true } },
                     include: { area: true }
                 });
-                if (!areasRelacionadas.length) throw new HttpException("No hay áreas asociadas a la carrera", 400);
+                if (!areasRelacionadas.length) {
+                    throw new HttpException("No hay áreas disponibles (estado true) asociadas a la carrera", 400);
+                }
+                const allAreaIdsAvail = areasRelacionadas.map(a => Number(a.Id_Area));
 
-                // ------- ÁREA -------------
-                let areaSorteada: number | null = null;
+                // ¿Tiene defensa PENDIENTE (misma tipología) con algo por asignar?
+                const pendiente = await tx.defensa.findFirst({
+                    where: {
+                        id_estudiante: idEstudiante,
+                        id_tipo_defensa: tipo.id_TipoDefensa,
+                        estado: 'PENDIENTE',
+                        OR: [{ id_area: null }, { id_casoEstudio: null }],
+                    },
+                    select: {
+                        id_defensa: true,
+                        id_area: true,
+                        id_casoEstudio: true,
+                    }
+                });
+
+                // Variables comunes de salida
+                let areaFinal: number | null = null;
                 let areaNombre: string | null = null;
-                if (sorteaArea) {
-                    const idx = areasRelacionadas.length === 1
-                        ? 0
-                        : Math.floor(Math.random() * areasRelacionadas.length);
-                    areaSorteada = Number(areasRelacionadas[idx].Id_Area);
-                    areaNombre = areasRelacionadas[idx].area?.nombre_area || null;
-                } else {
-                    areaSorteada = body.id_area ?? null;
-                    const areaObj = areasRelacionadas.find(a => a.Id_Area === areaSorteada);
-                    areaNombre = areaObj?.area?.nombre_area || null;
-                }
-
-                let casoSorteado: number | null = null;
+                let casoFinal: number | null = null;
                 let casoNombre: string | null = null;
-                if (sorteaCaso && areaSorteada) {
-                    const casos = await tx.casos_de_estudio.findMany({
-                        where: { id_area: areaSorteada, estado: true }
-                    });
-                    const casosDisponibles = casos.filter(
-                        c => !casosYaAsignados.has(c.id_casoEstudio.toString())
-                    );
-                    if (!casosDisponibles.length) {
-                        throw new HttpException(`No hay casos disponibles para el estudiante ${idEstudiante} en el área y fecha indicada.`, 400);
+
+                // ------------------ RELLENAR DEFENSA PENDIENTE ------------------
+                if (pendiente) {
+                    // Caso 1: faltan área y caso
+                    if (!pendiente.id_area && !pendiente.id_casoEstudio) {
+                        // Elegir área candidata
+                        let candidatas = [...allAreaIdsAvail];
+                        // Si el caller envía un área preferida válida, la probamos primero
+                        const preferida = body.id_area ? Number(body.id_area) : null;
+                        if (preferida && allAreaIdsAvail.includes(preferida)) {
+                            candidatas = [preferida, ...shuffle(allAreaIdsAvail.filter(a => a !== preferida))];
+                        } else {
+                            candidatas = shuffle(candidatas);
+                        }
+
+                        // Recorremos áreas hasta hallar un caso válido
+                        let asignado = false;
+                        for (const idArea of candidatas) {
+                            const pick = await pickCasoEnArea(idArea);
+                            if (pick) {
+                                areaFinal = idArea;
+                                // nombre área
+                                const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
+                                areaNombre = ao?.area?.nombre_area || null;
+
+                                casoFinal = pick.id;
+                                casoNombre = pick.nombre;
+
+                                // Marcar uso para esta fecha y en total
+                                const casoStr = String(casoFinal);
+                                casosYaAsignadosEnFecha.add(casoStr);
+                                totalUsosCaso.set(casoStr, (totalUsosCaso.get(casoStr) ?? 0) + 1);
+
+                                // Actualizar defensa existente
+                                const updated = await tx.defensa.update({
+                                    where: { id_defensa: pendiente.id_defensa },
+                                    data: {
+                                        fecha_defensa: fechaDefensa,
+                                        id_area: areaFinal,
+                                        id_casoEstudio: casoFinal,
+                                        estado: 'ASIGNADO',
+                                        updated_at: new Date(),
+                                    }
+                                });
+
+                                defensasCreadas.push({
+                                    id_defensa: updated.id_defensa,
+                                    estudiante: idEstudiante,
+                                    area: areaNombre,
+                                    caso: casoNombre,
+                                    fecha: updated.fecha_defensa,
+                                    estado: updated.estado,
+                                    tipo_defensa: tipoDefensa
+                                });
+
+                                asignado = true;
+                                break;
+                            }
+                        }
+
+                        if (!asignado) {
+                            throw new HttpException(
+                                `No hay casos disponibles (estado true, sin repetir fecha y con tope < 2 usos) para el estudiante ${idEstudiante}.`,
+                                400
+                            );
+                        }
+
+                        // Pasamos al siguiente estudiante (ya actualizamos)
+                        continue;
                     }
-                    const idx = casosDisponibles.length === 1
-                        ? 0
-                        : Math.floor(Math.random() * casosDisponibles.length);
-                    const caso = casosDisponibles[idx];
-                    casoSorteado = Number(caso.id_casoEstudio);
-                    casoNombre = caso.Nombre_Archivo || null;
-                    casosYaAsignados.add(caso.id_casoEstudio.toString());
-                } else if (!sorteaCaso) {
-                    casoSorteado = body.id_casoEstudio ?? null;
-                    if (casoSorteado) {
-                        const caso = await tx.casos_de_estudio.findUnique({
-                            where: { id_casoEstudio: casoSorteado }
+
+                    // Caso 2: ya tiene área, falta caso → sortear solo caso en esa área
+                    if (pendiente.id_area && !pendiente.id_casoEstudio) {
+                        const idArea = Number(pendiente.id_area);
+                        // Verificamos que el área siga disponible para la carrera
+                        if (!allAreaIdsAvail.includes(idArea)) {
+                            throw new HttpException(
+                                `El área ya asignada en la defensa pendiente no está disponible para la carrera (o estado=false).`,
+                                400
+                            );
+                        }
+
+                        const pick = await pickCasoEnArea(idArea);
+                        if (!pick) {
+                            throw new HttpException(
+                                `No hay casos disponibles en el área indicada (estado true, sin repetir fecha y con tope < 2 usos).`,
+                                400
+                            );
+                        }
+
+                        areaFinal = idArea;
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
+                        areaNombre = ao?.area?.nombre_area || null;
+
+                        casoFinal = pick.id;
+                        casoNombre = pick.nombre;
+
+                        const casoStr = String(casoFinal);
+                        casosYaAsignadosEnFecha.add(casoStr);
+                        totalUsosCaso.set(casoStr, (totalUsosCaso.get(casoStr) ?? 0) + 1);
+
+                        const updated = await tx.defensa.update({
+                            where: { id_defensa: pendiente.id_defensa },
+                            data: {
+                                fecha_defensa: fechaDefensa,
+                                id_casoEstudio: casoFinal,
+                                estado: 'ASIGNADO',
+                                updated_at: new Date(),
+                            }
                         });
-                        casoNombre = caso?.Nombre_Archivo || null;
+
+                        defensasCreadas.push({
+                            id_defensa: updated.id_defensa,
+                            estudiante: idEstudiante,
+                            area: areaNombre,
+                            caso: casoNombre,
+                            fecha: updated.fecha_defensa,
+                            estado: updated.estado,
+                            tipo_defensa: tipoDefensa
+                        });
+
+                        continue;
+                    }
+
+                    // Caso raro: tiene caso pero no área → usar área del caso si es válida
+                    if (!pendiente.id_area && pendiente.id_casoEstudio) {
+                        const caso = await tx.casos_de_estudio.findUnique({
+                            where: { id_casoEstudio: Number(pendiente.id_casoEstudio) },
+                            select: { id_area: true, estado: true, Nombre_Archivo: true }
+                        });
+                        if (!caso || !caso.estado || !caso.id_area || !allAreaIdsAvail.includes(Number(caso.id_area))) {
+                            throw new HttpException(
+                                `La defensa pendiente tiene caso asignado pero el área del caso no es válida/disponible.`,
+                                400
+                            );
+                        }
+                        const casoStr = String(pendiente.id_casoEstudio);
+                        // Validar restricciones del caso
+                        const usosTotales = totalUsosCaso.get(casoStr) ?? 0;
+                        if (usosTotales >= 2) {
+                            throw new HttpException(`El caso ya alcanzó el máximo de 2 usos.`, 400);
+                        }
+                        if (casosYaAsignadosEnFecha.has(casoStr)) {
+                            throw new HttpException(`El caso ya está asignado a otro estudiante en esa fecha.`, 400);
+                        }
+
+                        areaFinal = Number(caso.id_area);
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaFinal);
+                        areaNombre = ao?.area?.nombre_area || null;
+
+                        casoFinal = Number(pendiente.id_casoEstudio);
+                        casoNombre = caso.Nombre_Archivo || null;
+
+                        casosYaAsignadosEnFecha.add(casoStr);
+                        totalUsosCaso.set(casoStr, usosTotales + 1);
+
+                        const updated = await tx.defensa.update({
+                            where: { id_defensa: pendiente.id_defensa },
+                            data: {
+                                fecha_defensa: fechaDefensa,
+                                id_area: areaFinal,
+                                estado: 'ASIGNADO',
+                                updated_at: new Date(),
+                            }
+                        });
+
+                        defensasCreadas.push({
+                            id_defensa: updated.id_defensa,
+                            estudiante: idEstudiante,
+                            area: areaNombre,
+                            caso: casoNombre,
+                            fecha: updated.fecha_defensa,
+                            estado: updated.estado,
+                            tipo_defensa: tipoDefensa
+                        });
+
+                        continue;
                     }
                 }
 
-                // -------- DEFENSA --------------
+             
+                let areaSorteada: number | null = null;
+                let areaNombreSel: string | null = null;
+
+                if (sorteaCaso) {
+                    if (sorteaArea) {
+                        const idx = allAreaIdsAvail.length === 1 ? 0 : Math.floor(Math.random() * allAreaIdsAvail.length);
+                        areaSorteada = allAreaIdsAvail[idx];
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                        areaNombreSel = ao?.area?.nombre_area || null;
+                    } else {
+                        const preferida = body.id_area ? Number(body.id_area) : null;
+                        if (preferida && allAreaIdsAvail.includes(preferida)) {
+                            areaSorteada = preferida;
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                            areaNombreSel = ao?.area?.nombre_area || null;
+                        } else {
+                            areaSorteada = null;
+                            areaNombreSel = null;
+                        }
+                    }
+                } else {
+                    // Caso manual: validar área si viene
+                    if (!sorteaArea) {
+                        const manualArea = body.id_area ? Number(body.id_area) : null;
+                        if (manualArea && allAreaIdsAvail.includes(manualArea)) {
+                            areaSorteada = manualArea;
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === manualArea);
+                            areaNombreSel = ao?.area?.nombre_area || null;
+                        } else if (manualArea) {
+                            throw new HttpException("El área indicada no está disponible (estado false) o no pertenece a la carrera.", 400);
+                        }
+                    } else {
+                        const idx = allAreaIdsAvail.length === 1 ? 0 : Math.floor(Math.random() * allAreaIdsAvail.length);
+                        areaSorteada = allAreaIdsAvail[idx];
+                        const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                        areaNombreSel = ao?.area?.nombre_area || null;
+                    }
+                }
+
+                // Selección de caso
+                let casoSorteado: number | null = null;
+                let casoNombreSel: string | null = null;
+
+                if (sorteaCaso) {
+                    let candidatas: number[];
+                    if (areaSorteada) {
+                        const resto = allAreaIdsAvail.filter(id => id !== Number(areaSorteada));
+                        candidatas = [Number(areaSorteada), ...shuffle(resto)];
+                    } else {
+                        candidatas = shuffle(allAreaIdsAvail);
+                    }
+
+                    let seleccionado = false;
+                    for (const idArea of candidatas) {
+                        const pick = await pickCasoEnArea(idArea);
+                        if (pick) {
+                            casoSorteado = pick.id;
+                            casoNombreSel = pick.nombre;
+                            areaSorteada = idArea;
+
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === idArea);
+                            areaNombreSel = ao?.area?.nombre_area || null;
+
+                            const casoStr = String(casoSorteado);
+                            casosYaAsignadosEnFecha.add(casoStr);
+                            totalUsosCaso.set(casoStr, (totalUsosCaso.get(casoStr) ?? 0) + 1);
+
+                            seleccionado = true;
+                            break;
+                        }
+                    }
+
+                    if (!seleccionado) {
+                        throw new HttpException(
+                            `No hay casos disponibles (estado true, sin repetir fecha y con tope < 2 usos).`,
+                            400
+                        );
+                    }
+                } else {
+                    // Caso manual: validar restricciones
+                    const casoManual = body.id_casoEstudio ? Number(body.id_casoEstudio) : null;
+                    if (casoManual) {
+                        const caso = await tx.casos_de_estudio.findUnique({
+                            where: { id_casoEstudio: casoManual }
+                        });
+                        if (!caso || !caso.estado) {
+                            throw new HttpException("El caso indicado no está disponible (estado false) o no existe.", 400);
+                        }
+                        const casoStr = String(casoManual);
+                        const usosTotales = totalUsosCaso.get(casoStr) ?? 0;
+                        if (usosTotales >= 2) {
+                            throw new HttpException("El caso indicado ya alcanzó el máximo de 2 usos.", 400);
+                        }
+                        if (casosYaAsignadosEnFecha.has(casoStr)) {
+                            throw new HttpException("El caso indicado ya fue asignado en esa fecha.", 400);
+                        }
+                        // Si no se indicó área, usar la del caso (y validar que esté disponible)
+                        if (!areaSorteada) {
+                            if (!caso.id_area || !allAreaIdsAvail.includes(Number(caso.id_area))) {
+                                throw new HttpException("El área del caso no está disponible para la carrera.", 400);
+                            }
+                            areaSorteada = Number(caso.id_area);
+                            const ao = areasRelacionadas.find(a => Number(a.Id_Area) === areaSorteada);
+                            areaNombreSel = ao?.area?.nombre_area || null;
+                        }
+                        casoSorteado = casoManual;
+                        casoNombreSel = caso.Nombre_Archivo || null;
+
+                        // Marcar restricciones
+                        casosYaAsignadosEnFecha.add(casoStr);
+                        totalUsosCaso.set(casoStr, usosTotales + 1);
+                    }
+                }
+
+                // Validación: no crear duplicado exacto (mismo estudiante, tipo, fecha)
                 const defensaExistente = await tx.defensa.findFirst({
                     where: {
-                        id_estudiante: Number(idEstudiante),
+                        id_estudiante: idEstudiante,
                         id_tipo_defensa: tipo.id_TipoDefensa,
                         fecha_defensa: fechaDefensa
                     }
                 });
-                if (defensaExistente) throw new HttpException(`Ya existe una defensa para este estudiante en esa fecha y tipo.`, 400);
+                if (defensaExistente) {
+                    throw new HttpException(`Ya existe una defensa para este estudiante en esa fecha y tipo.`, 400);
+                }
 
                 let estadoDefensa = "ASIGNADO";
-                if (!areaSorteada || !casoSorteado) {
-                    estadoDefensa = "PENDIENTE";
-                }
+                if (!areaSorteada || !casoSorteado) estadoDefensa = "PENDIENTE";
 
                 const defensa = await tx.defensa.create({
                     data: {
                         fecha_defensa: fechaDefensa,
-                        id_estudiante: Number(idEstudiante),
+                        id_estudiante: idEstudiante,
                         id_tipo_defensa: tipo.id_TipoDefensa,
                         id_casoEstudio: casoSorteado,
                         id_area: areaSorteada,
                         estado: estadoDefensa,
                         created_at: new Date(),
                         updated_at: new Date(),
-                        // id_encargados_carrera: body.id_encargados_carrera
                     }
                 });
 
                 defensasCreadas.push({
                     id_defensa: defensa.id_defensa,
                     estudiante: idEstudiante,
-                    area: areaNombre,
-                    caso: casoNombre,
+                    area: areaNombreSel,
+                    caso: casoNombreSel,
                     fecha: defensa.fecha_defensa,
                     estado: defensa.estado,
                     tipo_defensa: tipoDefensa
@@ -133,34 +450,29 @@ export class DefensaService {
 
             return defensasCreadas;
         }).then(async (defensasCreadas) => {
-            // Enviar notificaciones fuera de la transacción para no bloquear
+            // Notificaciones fuera de la transacción
             for (const defensa of defensasCreadas) {
-                // Enviar notificación por WhatsApp (sin bloquear)
                 this.enviarNotificacionDefensa(Number(defensa.estudiante), {
                     area: defensa.area,
                     caso: defensa.caso,
                     fecha: defensa.fecha,
                     tipo_defensa: defensa.tipo_defensa,
                     estado: defensa.estado
-                }).catch(error => {
-                    console.error(`Error al procesar notificación WhatsApp para estudiante ${defensa.estudiante}:`, error);
-                });
+                }).catch(err => console.error(`Error WhatsApp estudiante ${defensa.estudiante}:`, err));
 
-                // Enviar notificación por Email (sin bloquear)
                 this.enviarNotificacionEmailDefensa(Number(defensa.estudiante), {
                     area: defensa.area,
                     caso: defensa.caso,
                     fecha: defensa.fecha,
                     tipo_defensa: defensa.tipo_defensa,
                     estado: defensa.estado
-                }).catch(error => {
-                    console.error(`Error al procesar notificación Email para estudiante ${defensa.estudiante}:`, error);
-                });
+                }).catch(err => console.error(`Error Email estudiante ${defensa.estudiante}:`, err));
             }
-
             return defensasCreadas;
         });
     }
+
+
 
     async getAllDefensasDetalle({ page, pageSize, tipoDefensaNombre, user }: { page: number, pageSize: number, tipoDefensaNombre?: string, user: any }) {
         try {
@@ -170,7 +482,7 @@ export class DefensaService {
             const usuario = await this.prisma.usuario.findUnique({
                 where: { Id_Usuario: user },
                 include: {
-                    usuario_Carrera:true
+                    usuario_Carrera: true
                 }
             });
             if (!usuario) throw new Error("Usuario no encontrado");
@@ -225,7 +537,7 @@ export class DefensaService {
             const total = await this.prisma.defensa.count({
                 where: {
                     id_estudiante: { in: estudianteIds },
-                     ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
+                    ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
                 }
             });
 
@@ -235,7 +547,7 @@ export class DefensaService {
                 take,
                 where: {
                     id_estudiante: { in: estudianteIds },
-                     ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
+                    ...(typeof tipoDefensaId !== "undefined" ? { id_tipo_defensa: tipoDefensaId } : {})
                 },
                 include: {
                     estudiante: { include: { Persona: true } },
@@ -305,7 +617,7 @@ export class DefensaService {
             throw new Error(`Error fetching defensas: ${error.message}`);
         }
     }
-     async getDefensasFiltradas({ page, pageSize, user, tipoDefensaNombre, word }: { page: number, pageSize: number, user: bigint, tipoDefensaNombre?: string, word?: string }) {
+    async getDefensasFiltradas({ page, pageSize, user, tipoDefensaNombre, word }: { page: number, pageSize: number, user: bigint, tipoDefensaNombre?: string, word?: string }) {
         try {
             const skip = (Number(page) - 1) * Number(pageSize);
             const take = Number(pageSize);
@@ -354,7 +666,7 @@ export class DefensaService {
                     return { items: [], total: 0, page: Number(page), pageSize: Number(pageSize), totalPages: 0 };
                 }
             }
-            
+
             // Condición opcional: Filtrar por palabra clave si se proporciona
             if (word && word.trim() !== '') {
                 whereClause.AND.push({
@@ -427,7 +739,7 @@ export class DefensaService {
                             nombre: `${p.Nombre} ${p.Apellido1} ${p.Apellido2 || ""}`.trim(),
                         };
                     }).filter((j): j is { id_tribunal: bigint; nombre: string; } => j !== null);
-                
+
                 let fechaDefensa: string | null = null;
                 let horaDefensa: string | null = null;
                 if (defensa.fecha_defensa) {
@@ -512,23 +824,28 @@ export class DefensaService {
 
     private async enviarNotificacionDefensa(idEstudiante: number, defensaInfo: any) {
         try {
-            // Obtener información del estudiante y su teléfono
+            // 1) Datos del estudiante
             const estudiante = await this.prisma.estudiante.findUnique({
                 where: { id_estudiante: idEstudiante },
-                include: {
-                    Persona: true
-                }
+                include: { Persona: true }
             });
 
-            if (!estudiante || !estudiante.Persona || !estudiante.Persona.telefono) {
+            if (!estudiante?.Persona?.telefono) {
                 console.log(`No se pudo enviar notificación: estudiante sin teléfono (ID: ${idEstudiante})`);
                 return;
             }
 
+            // 2) URL del caso (si existiera)
+            const linkcaso = await this.prisma.defensa.findFirst({
+                where: { id_estudiante: idEstudiante },
+                select: { casos_de_estudio: { select: { url: true } } }
+            });
+
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
-            const telefono = estudiante.Persona.telefono.toString();
-            
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
+            const telefono = String(estudiante.Persona.telefono);
+
+            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
+                timeZone: 'America/La_Paz',
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
@@ -537,66 +854,78 @@ export class DefensaService {
                 minute: '2-digit'
             });
 
-            let mensaje = `¡Hola ${nombreCompleto}! 👋\n\n`;
-            
+            let mensaje = `Estimado/a ${nombreCompleto}:\n\n`;
+
             if (defensaInfo.estado === 'ASIGNADO') {
-                mensaje += `✅ *Tu defensa ha sido programada exitosamente*\n\n`;
-                mensaje += `📅 *Fecha y hora:* ${fechaFormateada}\n`;
-                mensaje += `📚 *Tipo de defensa:* ${defensaInfo.tipo_defensa}\n`;
-                if (defensaInfo.area) {
-                    mensaje += `🎯 *Área asignada:* ${defensaInfo.area}\n`;
+                mensaje += `Le informamos que su defensa ha sido programada.\n\n`;
+                mensaje += `— Fecha y hora: ${fechaFormateada}\n`;
+                mensaje += `— Tipo de defensa: ${defensaInfo.tipo_defensa}\n`;
+                if (defensaInfo.area) mensaje += `— Área asignada: ${defensaInfo.area}\n`;
+                if (defensaInfo.caso) mensaje += `— Caso de estudio: ${defensaInfo.caso}\n`;
+                if (linkcaso) {
+                    mensaje += `— Enlace al caso: ${linkcaso.casos_de_estudio?.url || 'No disponible'}\n`;
                 }
-                if (defensaInfo.caso) {
-                    mensaje += `📋 *Caso de estudio:* ${defensaInfo.caso}\n`;
-                }
-                mensaje += `\n¡Te deseamos mucho éxito en tu defensa! 🍀`;
+                mensaje += `\nPor favor, verifique la información y procure presentarse con antelación.`;
             } else if (defensaInfo.estado === 'PENDIENTE') {
-                mensaje += `⏳ *Tu defensa ha sido registrada*\n\n`;
-                mensaje += `📅 *Fecha y hora:* ${fechaFormateada}\n`;
-                mensaje += `📚 *Tipo de defensa:* ${defensaInfo.tipo_defensa}\n`;
-                mensaje += `\n⚠️ *Nota:* Aún faltan algunos detalles por asignar. Te notificaremos cuando esté todo listo.`;
+                mensaje += `Se ha registrado su defensa.\n\n`;
+                mensaje += `— Fecha y hora: ${fechaFormateada}\n`;
+                mensaje += `— Tipo de defensa: ${defensaInfo.tipo_defensa}\n`;
+                mensaje += `\nNota: algunos detalles se encuentran en proceso de asignación. Le notificaremos cuando estén confirmados.`;
+            } else {
+                // Estado desconocido (fallback formal)
+                mensaje += `Se registró un movimiento relacionado con su defensa.\n\n`;
+                mensaje += `— Fecha y hora: ${fechaFormateada}\n`;
+                mensaje += `— Tipo de defensa: ${defensaInfo.tipo_defensa}\n`;
             }
 
-            // Enviar mensaje con timeout para evitar bloqueos largos
+            mensaje += `\n\nAtentamente,\nCoordinación Académica`;
+
+            // 5) Envío con timeout
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendMessage(telefono, mensaje),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
-                )
+                ),
             ]);
 
             if (envioExitoso) {
-                console.log(`✅ Notificación enviada exitosamente al estudiante ${nombreCompleto} (${telefono})`);
+                console.log(`Notificación enviada exitosamente a ${nombreCompleto} (${telefono})`);
             } else {
-                console.log(`❌ No se pudo enviar la notificación al estudiante ${nombreCompleto} (${telefono})`);
+                console.log(`No se pudo enviar la notificación a ${nombreCompleto} (${telefono})`);
             }
-            
         } catch (error) {
-            console.error(`❌ Error al enviar notificación al estudiante ${idEstudiante}:`, error.message || error);
-            // Intentar registrar en base de datos para reenvío posterior (opcional)
+            console.error(`❌ Error al enviar notificación al estudiante ${idEstudiante}:`, error?.message || error);
+            // Opcional: registrar para reintento posterior
             // await this.registrarNotificacionFallida(idEstudiante, defensaInfo);
         }
     }
 
+
     private async enviarNotificacionEmailDefensa(idEstudiante: number, defensaInfo: any) {
         try {
-            // Obtener información del estudiante y su email
+            // 1) Datos del estudiante
             const estudiante = await this.prisma.estudiante.findUnique({
                 where: { id_estudiante: idEstudiante },
-                include: {
-                    Persona: true
-                }
+                include: { Persona: true }
             });
 
-            if (!estudiante || !estudiante.Persona || !estudiante.Persona.Correo) {
+            if (!estudiante?.Persona?.Correo) {
                 console.log(`No se pudo enviar email: estudiante sin email (ID: ${idEstudiante})`);
                 return;
             }
 
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
-            const email = estudiante.Persona.Correo;
-            
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleDateString('es-BO', {
+            const email = String(estudiante.Persona.Correo);
+
+            // 2) URL del caso (si existiera)
+            const linkcaso = await this.prisma.defensa.findFirst({
+                where: { id_estudiante: idEstudiante },
+                select: { casos_de_estudio: { select: { url: true } } }
+            });
+
+            // 3) Fecha/hora en zona de Bolivia
+            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
+                timeZone: 'America/La_Paz',
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
@@ -605,89 +934,182 @@ export class DefensaService {
                 minute: '2-digit'
             });
 
+            // 4) Paleta institucional
+            const colorRojo = '#B71C1C'; // rojo institucional
+            const colorNegro = '#000000';
+            const colorTexto = '#111111';
+            const colorBorde = '#e6e6e6';
+
+            // 5) Asunto + Template (formal, sin emojis)
             let asunto = '';
-            let mensaje = '';
-            let templateData: any = {};
+            let title = '';
+            let messageHTML = '';
+
+            const headerHTML = `
+      <div style="background:#ffffff;padding:24px 24px 8px 24px;font-family:Segoe UI,Roboto,Arial,sans-serif;color:${colorTexto};">
+        <div style="border-top:6px solid ${colorRojo};"></div>
+        <h1 style="margin:16px 0 4px 0;color:${colorNegro};font-size:20px;line-height:1.3;">
+          Universidad Tecnologica Privada de Santa Cruz
+        </h1>
+    `;
+
+            const footerHTML = `
+        <hr style="border:none;border-top:1px solid ${colorBorde};margin:20px 0;" />
+        <p style="margin:0;color:${colorTexto};font-size:12px;line-height:1.5;">
+          Este mensaje ha sido enviado por la Coordinación Académica.
+        </p>
+      </div>
+    `;
 
             if (defensaInfo.estado === 'ASIGNADO') {
-                asunto = `✅ Defensa Programada - ${defensaInfo.tipo_defensa}`;
-                mensaje = `Tu defensa ha sido programada exitosamente para el ${fechaFormateada}.`;
-                
-                templateData = {
-                    title: '🎓 Defensa Programada Exitosamente',
-                    message: `
-                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
-                        
-                        <p>Te informamos que tu defensa ha sido programada con los siguientes detalles:</p>
-                        
-                        <ul>
-                            <li><strong>📅 Fecha y hora:</strong> ${fechaFormateada}</li>
-                            <li><strong>📚 Tipo de defensa:</strong> ${defensaInfo.tipo_defensa}</li>
-                            ${defensaInfo.area ? `<li><strong>🎯 Área asignada:</strong> ${defensaInfo.area}</li>` : ''}
-                            ${defensaInfo.caso ? `<li><strong>📋 Caso de estudio:</strong> ${defensaInfo.caso}</li>` : ''}
-                        </ul>
-                        
-                        <p><strong>Recomendaciones importantes:</strong></p>
-                        <ul>
-                            <li>Llega 15 minutos antes de la hora programada</li>
-                            <li>Revisa todo el material relacionado con tu área y caso de estudio</li>
-                            <li>Prepárate mental y académicamente para la defensa</li>
-                        </ul>
-                        
-                        <p>¡Te deseamos mucho éxito en tu defensa! 🍀</p>
-                        
-                        <p>Saludos cordiales,<br>
-                        <strong>Sistema Gestura - UTEPSA</strong></p>
-                    `
-                };
+                asunto = `Programación de defensa – ${defensaInfo.tipo_defensa}`;
+                title = 'Programación de defensa';
+
+                messageHTML = `
+        ${headerHTML}
+        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
+        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
+        <p style="margin:0 0 12px 0;">
+          Le informamos que su defensa ha sido programada con los siguientes detalles:
+        </p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
+          <tr>
+            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
+            <td style="padding:6px 0;">${fechaFormateada}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
+            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
+          </tr>
+          ${defensaInfo.area ? `
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Área asignada</td>
+            <td style="padding:6px 0;">${defensaInfo.area}</td>
+          </tr>` : ''}
+          ${defensaInfo.caso ? `
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Caso de estudio</td>
+            <td style="padding:6px 0;">${defensaInfo.caso}</td>
+          </tr>` : ''}
+          ${linkcaso?.casos_de_estudio?.url ? `
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Enlace al caso</td>
+            <td style="padding:6px 0;word-break:break-all;">
+              <a href="${linkcaso.casos_de_estudio.url}" style="color:${colorRojo};text-decoration:none;">
+                ${linkcaso.casos_de_estudio.url}
+              </a>
+            </td>
+          </tr>` : ''}
+        </table>
+
+        <div style="background:#fff;border:1px solid ${colorBorde};border-left:4px solid ${colorRojo};padding:12px;border-radius:4px;margin:12px 0;">
+          <p style="margin:0 0 8px 0;"><strong>Indicaciones:</strong></p>
+          <ul style="margin:0 0 0 18px;padding:0;">
+            <li>Preséntese con al menos 15 minutos de antelación.</li>
+            <li>Verifique su material y documentación.</li>
+            <li>Considere las instrucciones específicas de la coordinación.</li>
+          </ul>
+        </div>
+
+        <p style="margin:16px 0 0 0;">
+          Atentamente,<br/>
+          <strong>Coordinación Académica</strong>
+        </p>
+        ${footerHTML}
+      `;
             } else if (defensaInfo.estado === 'PENDIENTE') {
-                asunto = `⏳ Defensa Registrada - Pendiente de Asignación`;
-                mensaje = `Tu defensa ha sido registrada pero aún faltan algunos detalles por asignar.`;
-                
-                templateData = {
-                    title: '📝 Defensa Registrada - Pendiente',
-                    message: `
-                        <p>Estimado/a <strong>${nombreCompleto}</strong>,</p>
-                        
-                        <p>Te informamos que tu defensa ha sido registrada en el sistema:</p>
-                        
-                        <ul>
-                            <li><strong>📅 Fecha programada:</strong> ${fechaFormateada}</li>
-                            <li><strong>📚 Tipo de defensa:</strong> ${defensaInfo.tipo_defensa}</li>
-                            <li><strong>📊 Estado:</strong> Pendiente de asignación completa</li>
-                        </ul>
-                        
-                        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                            <p><strong>⚠️ Nota importante:</strong></p>
-                            <p>Aún faltan algunos detalles por asignar (área específica o caso de estudio). Te notificaremos por este mismo medio cuando todo esté completamente asignado.</p>
-                        </div>
-                        
-                        <p>Mantente atento a futuras comunicaciones.</p>
-                        
-                        <p>Saludos cordiales,<br>
-                        <strong>Sistema Gestura - UTEPSA</strong></p>
-                    `
-                };
+                asunto = 'Defensa registrada – pendiente de asignación';
+                title = 'Defensa registrada';
+
+                messageHTML = `
+        ${headerHTML}
+        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
+        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
+        <p style="margin:0 0 12px 0;">
+          Su defensa ha sido registrada con los siguientes datos:
+        </p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
+          <tr>
+            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
+            <td style="padding:6px 0;">${fechaFormateada}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
+            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Estado</td>
+            <td style="padding:6px 0;">Pendiente de asignación completa</td>
+          </tr>
+        </table>
+
+        <div style="background:#fff;border:1px solid ${colorBorde};border-left:4px solid ${colorRojo};padding:12px;border-radius:4px;margin:12px 0;">
+          <p style="margin:0;">
+            Algunos detalles (como el área específica o el caso de estudio) están en proceso de asignación.
+            Le notificaremos por este mismo medio cuando se encuentren confirmados.
+          </p>
+        </div>
+
+        <p style="margin:16px 0 0 0;">
+          Atentamente,<br/>
+          <strong>Coordinación Académica</strong>
+        </p>
+        ${footerHTML}
+      `;
+            } else {
+                // Fallback formal
+                asunto = 'Actualización sobre su defensa';
+                title = 'Actualización de registro';
+                messageHTML = `
+        ${headerHTML}
+        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
+        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
+        <p style="margin:0 0 12px 0;">
+          Se registró una actualización relacionada con su defensa.
+        </p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
+          <tr>
+            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
+            <td style="padding:6px 0;">${fechaFormateada}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
+            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
+          </tr>
+        </table>
+        <p style="margin:16px 0 0 0;">
+          Atentamente,<br/>
+          <strong>Coordinación Académica</strong>
+        </p>
+        ${footerHTML}
+      `;
             }
 
-            // Enviar email con timeout para evitar bloqueos largos
+            const templateData = {
+                title,          // si tu plantilla usa el título aparte
+                message: messageHTML
+            };
+
+            // 6) Envío con timeout
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar email')), 30000)
                 )
             ]);
 
             if (envioExitoso) {
-                console.log(`✅ Email enviado exitosamente al estudiante ${nombreCompleto} (${email})`);
+                console.log(`Email enviado exitosamente a ${nombreCompleto} (${email})`);
             } else {
-                console.log(`❌ No se pudo enviar el email al estudiante ${nombreCompleto} (${email})`);
+                console.log(`No se pudo enviar el email a ${nombreCompleto} (${email})`);
             }
-            
         } catch (error) {
-            console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, error.message || error);
+            console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, error?.message || error);
         }
     }
+
 
     private async enviarNotificacionCalificacion(defensa: any, nota: number, estado: string) {
         try {
@@ -698,7 +1120,7 @@ export class DefensaService {
 
             const nombreCompleto = `${defensa.estudiante.Persona.Nombre} ${defensa.estudiante.Persona.Apellido1} ${defensa.estudiante.Persona.Apellido2 || ''}`.trim();
             const telefono = defensa.estudiante.Persona.telefono.toString();
-            
+
             const fechaFormateada = new Date(defensa.fecha_defensa).toLocaleDateString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
@@ -707,7 +1129,7 @@ export class DefensaService {
             });
 
             let mensaje = `¡Hola ${nombreCompleto}! 👋\n\n`;
-            
+
             if (estado === 'APROBADO') {
                 mensaje += `🎉 *¡FELICIDADES! Has APROBADO tu defensa* 🎉\n\n`;
                 mensaje += `✅ *Calificación obtenida:* ${nota}/100\n`;
@@ -728,7 +1150,7 @@ export class DefensaService {
 
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendMessage(telefono, mensaje),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
                 )
             ]);
@@ -738,7 +1160,7 @@ export class DefensaService {
             } else {
                 console.log(`❌ No se pudo enviar la notificación de calificación por WhatsApp al estudiante ${nombreCompleto}`);
             }
-            
+
         } catch (error) {
             console.error(`❌ Error al enviar notificación de calificación por WhatsApp:`, error.message || error);
         }
@@ -753,7 +1175,7 @@ export class DefensaService {
 
             const nombreCompleto = `${defensa.estudiante.Persona.Nombre} ${defensa.estudiante.Persona.Apellido1} ${defensa.estudiante.Persona.Apellido2 || ''}`.trim();
             const email = defensa.estudiante.Persona.Correo;
-            
+
             const fechaFormateada = new Date(defensa.fecha_defensa).toLocaleDateString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
@@ -766,7 +1188,7 @@ export class DefensaService {
 
             if (estado === 'APROBADO') {
                 asunto = `🎉 ¡FELICIDADES! Defensa Aprobada - Calificación: ${nota}/100`;
-                
+
                 templateData = {
                     title: '🎉 ¡DEFENSA APROBADA!',
                     message: `
@@ -801,7 +1223,7 @@ export class DefensaService {
                 };
             } else {
                 asunto = `📋 Resultado de Defensa - Calificación: ${nota}/100`;
-                
+
                 templateData = {
                     title: '📋 Resultado de tu Defensa',
                     message: `
@@ -840,7 +1262,7 @@ export class DefensaService {
 
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
-                new Promise<boolean>((_, reject) => 
+                new Promise<boolean>((_, reject) =>
                     setTimeout(() => reject(new Error('Timeout al enviar email')), 30000)
                 )
             ]);
@@ -850,13 +1272,59 @@ export class DefensaService {
             } else {
                 console.log(`❌ No se pudo enviar el email de calificación al estudiante ${nombreCompleto} (${email})`);
             }
-            
+
         } catch (error) {
             console.error(`❌ Error al enviar email de calificación:`, error.message || error);
         }
     }
 
 
+
+    async eliminarDefensa(
+        idDefensa: number | string,
+        opts: { force?: boolean } = {},
+    ) {
+        const id = Number(idDefensa);
+        if (!Number.isFinite(id)) {
+            throw new BadRequestException('id_defensa inválido');
+        }
+
+        return this.prisma.$transaction(async (tx) => {
+            const defensa = await tx.defensa.findUnique({
+                where: { id_defensa: id },
+                select: { id_defensa: true, estado: true },
+            });
+
+            if (!defensa) {
+                throw new NotFoundException('Defensa no encontrada');
+            }
+
+            if (!opts.force && (defensa.estado === 'APROBADO' || defensa.estado === 'REPROBADO')) {
+                throw new BadRequestException(
+                    `No se puede eliminar una defensa en estado ${defensa.estado}. Usa ?force=true si realmente quieres borrarla.`,
+                );
+            }
+
+            const [delTribunal, delArchivos] = await Promise.all([
+                tx.tribunal_defensa.deleteMany({ where: { id_defensa: id } }),
+                tx.archivos_defensa.deleteMany({ where: { id_defensa: id } }),
+            ]);
+
+            const delDefensa = await tx.defensa.delete({
+                where: { id_defensa: id },
+            });
+
+            return {
+                ok: true,
+                id_defensa: delDefensa.id_defensa,
+                estado_prev: defensa.estado,
+                deleted_children: {
+                    tribunal_defensa: delTribunal.count,
+                    archivos_defensa: delArchivos.count,
+                },
+            };
+        });
+    }
 
 
 }
