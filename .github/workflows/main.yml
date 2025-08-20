@@ -68,7 +68,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             set -e
-            APP_DIR=/opt/tu-app
+            APP_DIR=/opt/gestura-back
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
 
