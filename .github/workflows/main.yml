@@ -8,8 +8,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: salvatierraj/gestura-back   # repos de Docker Hub en minúsculas
-
+  IMAGE_NAME: salvatierraj/gestura-back   
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,9 +31,10 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.REGISTRY }}    
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}  
+
 
       - name: Build & Push
         uses: docker/build-push-action@v6
@@ -53,33 +53,32 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
+        uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
-          args: "--hostname gha-deployer --timeout 2m"
 
-      - name: Deploy via Tailscale SSH (sin llaves)
+      - name: Deploy via Tailscale SSH
         env:
-          SSH_HOST: ubuntu-ci.tail60ceb7.ts.net   # o la IP 100.x de tu servidor
+          SSH_HOST: ubuntu-ci.tail60ceb7.ts.net   
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -e
-          # NOTA: Tailscale SSH requiere que el servidor tenga `tailscale up --ssh`
-          # y que la política de Access Controls permita SSH desde este runner.
+          # Requiere que en el server tengas 'tailscale up --ssh'
+          # y que la policy de Access Controls permita SSH desde este runner.
 
-          ssh -o StrictHostKeyChecking=no deploy@"$SSH_HOST" << 'EOS'
+          # Usamos 'tailscale ssh' (no llaves) para ejecutar un script remoto.
+          # Si prefieres OpenSSH con llaves, cambia por 'ssh' y añade key.
+          tailscale ssh deploy@"$SSH_HOST" 'bash -s' <<EOF
           set -e
           APP_DIR=/opt/tu-app
-          mkdir -p "$APP_DIR"
-          cd "$APP_DIR"
+          mkdir -p "\$APP_DIR"
+          cd "\$APP_DIR"
 
-          # Login a Docker Hub en el servidor usando password-stdin (más seguro)
+          # Login a Docker Hub en el servidor con password-stdin
           echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
 
           docker compose pull
           docker compose up -d --remove-orphans
           docker image prune -f
-          EOS
-        # Pasamos credenciales como env del paso para que el heredoc las expanda EN el servidor
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          EOF
