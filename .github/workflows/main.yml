@@ -65,18 +65,12 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
           args: "--hostname gha-deployer --timeout 2m"
-
-
-      - name: Debug - Print SSH_HOST
-        run: echo "SSH_HOST = '${{ secrets.SSH_HOST }}'"
-
       - name: Deploy over SSH via Tailscale
         uses: appleboy/ssh-action@v1
         with:
           host: 100.66.227.22
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             set -e
             APP_DIR=/opt/gestura-back
