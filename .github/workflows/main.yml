@@ -63,6 +63,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
           args: "--hostname gha-deployer --timeout 2m"
 
       - name: Deploy over SSH via Tailscale
