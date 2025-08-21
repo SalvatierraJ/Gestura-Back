@@ -42,7 +42,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: salvatierraj
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          password: "7@21sd08VJ"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -88,7 +88,7 @@ jobs:
             cd "$APP_DIR"
 
             # Login a Docker Hub con secret
-            echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login docker.io -u "salvatierraj" --password-stdin
+            echo "7@21sd08VJ" | docker login docker.io -u "salvatierraj" --password-stdin
 
             # Traer última imagen y levantar
             docker compose pull
