@@ -77,7 +77,7 @@ jobs:
             cd "$APP_DIR"
             
             # Login to Docker Hub using the same token
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io -u "salvatierraj" --password-stdin
+            echo "7@21sd08VJ" | docker login docker.io -u "salvatierraj" --password-stdin
             
             # Pull and restart services
             docker compose pull
