@@ -5,9 +5,11 @@ on:
     branches: [ "main" ]
     tags: [ "*" ]
   workflow_dispatch:
+
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
+
 env:
   REGISTRY: docker.io
   IMAGE_NAME: salvatierraj/gestura-back
@@ -15,7 +17,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -47,7 +48,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./dockerfile  
+          file: ./dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -57,7 +58,6 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment: production
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Connect to Tailscale
@@ -67,24 +67,32 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
           args: "--hostname gha-deployer --timeout 2m"
+
+      - name: Quick debug
+        run: |
+          echo "Runner IPs:"
+          ip a || true
+          echo "Trying Tailscale ping:"
+          ping -c 2 100.66.227.22 || true
+
       - name: Deploy over SSH via Tailscale
         uses: appleboy/ssh-action@v1
         with:
           host: 100.66.227.22
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          username: ${{ secrets.SSH_USER }}    
+          key: ${{ secrets.SSH_KEY }}         
           script: |
             set -e
             APP_DIR=/opt/gestura-back
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
-            
-            # Login to Docker Hub using the same token
-            echo "7@21sd08VJ" | docker login docker.io -u "salvatierraj" --password-stdin
-            
-            # Pull and restart services
+
+            # Login a Docker Hub con secret
+            echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login docker.io -u "salvatierraj" --password-stdin
+
+            # Traer última imagen y levantar
             docker compose pull
             docker compose up -d --remove-orphans
-            
-            # Clean up unused images
+
+            # Limpieza
             docker image prune -f
