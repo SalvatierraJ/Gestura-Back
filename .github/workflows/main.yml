@@ -66,6 +66,10 @@ jobs:
           tags: tag:ci
           args: "--hostname gha-deployer --timeout 2m"
 
+
+      - name: Debug - Print SSH_HOST
+        run: echo "SSH_HOST = '${{ secrets.SSH_HOST }}'"
+
       - name: Deploy over SSH via Tailscale
         uses: appleboy/ssh-action@v1
         with:
