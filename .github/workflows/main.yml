@@ -77,7 +77,7 @@ jobs:
             cd "$APP_DIR"
             
             # Login to Docker Hub on the remote server
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io -u "${{ salvatierraj }}" --password-stdin
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io -u "salvatierraj" --password-stdin
             
             # Pull and restart services
             docker compose pull
