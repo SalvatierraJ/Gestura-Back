@@ -1,6 +1,7 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY prisma/ ./prisma/
 
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
