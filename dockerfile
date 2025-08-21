@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 COPY prisma/ ./prisma/
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --no-audit --no-fund
+    npm install --no-audit --no-fund
 
 RUN npx prisma generate
 
@@ -31,5 +31,3 @@ USER node
 EXPOSE 3000
 
 CMD ["node", "dist/main.js"]
-
-
