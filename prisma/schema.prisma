@@ -36,7 +36,7 @@ model Persona {
   Nombre           String             @db.VarChar(500)
   Apellido1        String             @db.VarChar(500)
   Apellido2        String?            @db.VarChar(500)
-  Correo           String?            @db.VarChar(500)
+  Correo           String?            @unique @db.VarChar(500)
   CI               String?            @db.VarChar(255)
   created_at       DateTime?          @db.Timestamp(6)
   updated_at       DateTime?          @db.Timestamp(6)
@@ -97,6 +97,7 @@ model Usuario {
   defensa              defensa[]
   documentos_generados documentos_generados[]
   usuario_Carrera      usuario_Carrera[]
+  plantillas           Plantilla[]
 }
 
 model archivos_defensa {
@@ -354,6 +355,7 @@ model Modulos {
   Id_Modulo          BigInt               @id @default(autoincrement())
   Nombre             String?              @db.VarChar
   rol_Modulo_Permiso rol_Modulo_Permiso[]
+  plantillas         Plantilla[]
 }
 
 model Permisos {
@@ -369,6 +371,8 @@ model Usuario_Rol {
   Id_Rol         BigInt?
   Rol            Rol?     @relation(fields: [Id_Rol], references: [id_Rol], onDelete: NoAction, onUpdate: NoAction, map: "Id_Rol")
   Usuario        Usuario? @relation(fields: [Id_Usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction, map: "Id_Usuario")
+
+  @@unique([Id_Usuario, Id_Rol], name: "Id_Usuario_Id_Rol")
 }
 
 model rol_Modulo_Permiso {
@@ -434,6 +438,7 @@ model usuario_Carrera {
   Usuario            Usuario? @relation(fields: [Id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction, map: "id_usaurioCarrera")
 
   @@unique([Id_usuario, Id_carrera], map: "rol_Carrera_Id_rol_Id_carrera_key")
+  @@unique([Id_usuario, Id_carrera], name: "Id_usuario_Id_carrera")
 }
 
 model modulo_periodo {
@@ -457,4 +462,19 @@ model WhatsAppSession {
   expires_at DateTime? @db.Timestamp(6)
 
   @@map("whatsapp_sessions")
+}
+
+model Plantilla {
+  id_plantilla   BigInt   @id @default(autoincrement())
+  nombre_archivo String?  @db.VarChar(500)
+  ruta_archivo   String
+  id_usuario     BigInt
+  id_modulo      BigInt
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+  updated_at     DateTime @updatedAt @db.Timestamp(6)
+
+  usuario Usuario @relation(fields: [id_usuario], references: [Id_Usuario], onDelete: NoAction, onUpdate: NoAction)
+  modulo  Modulos @relation(fields: [id_modulo], references: [Id_Modulo], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("plantillas")
 }
