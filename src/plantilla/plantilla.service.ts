@@ -48,9 +48,7 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                         id_modulo
                     });
                     
-                    console.log(`✅ Plantilla guardada en BD: ${file.originalname}`);
                 } catch (error: any) {
-                    console.error(`❌ Error al guardar plantilla en BD: ${file.originalname}`, error);
                     throw new Error(`Error al guardar plantilla: ${file.originalname} - ${error.message}`);
                 }
             }
@@ -78,9 +76,8 @@ import * as fs from 'fs';import { contains } from 'class-validator';
             id_plantilla: number, 
             parametrosPersonalizados: Record<string, any>
         ): Promise<[string, Buffer]> {
-            console.log(`🔍 Buscando plantilla con ID: ${id_plantilla}`);
             
-            // ✅ Buscar la plantilla en la base de datos
+          
             const plantilla = await this.getPlantillaById(BigInt(id_plantilla));
             
             if (!plantilla) {
@@ -91,21 +88,20 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                 throw new BadRequestException('Plantilla sin nombre de archivo válido');
             }
 
-            console.log(`📄 Plantilla encontrada: ${plantilla.nombre_archivo}`);
-            console.log(`📋 Parámetros recibidos:`, parametrosPersonalizados);
-
-            // ✅ Obtener la ruta del archivo
+    
             const templatePath = path.resolve( plantilla.ruta_archivo);
             const ext = path.extname(plantilla.nombre_archivo).toLowerCase();
 
-            // ✅ Verificar que el archivo existe
             if (!fs.existsSync(templatePath)) {
                 throw new NotFoundException(`Archivo físico no encontrado: ${templatePath}`);
             }
 
-            // ✅ Procesar según el tipo de archivo
+     
             if (ext === '.docx') {
-                return await this.procesarDocx(plantilla, templatePath, parametrosPersonalizados);
+                    if (parametrosPersonalizados.areas && !Array.isArray(parametrosPersonalizados.areas)) {
+                        parametrosPersonalizados.areas = [parametrosPersonalizados.areas];
+                    }
+                    return await this.procesarDocx(plantilla, templatePath, parametrosPersonalizados);
             } 
             else if (ext === '.xlsx') {
                 return await this.procesarExcel(plantilla, templatePath, parametrosPersonalizados);
@@ -260,8 +256,6 @@ import * as fs from 'fs';import { contains } from 'class-validator';
             templatePath: string,
             parametrosPersonalizados: Record<string, any>
         ): Promise<[string, Buffer]> {
-            console.log('🚀 Procesando archivo DOCX...');
-            
             const content = fs.readFileSync(templatePath);
             let zip;
 
@@ -282,7 +276,6 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                 throw new InternalServerErrorException('No se pudo inicializar Docxtemplater');
             }
 
-            // ✅ Usar parámetros personalizados dinámicos
             doc.setData(parametrosPersonalizados);
 
             try {
@@ -300,33 +293,26 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                 compression: 'DEFLATE',
             });
 
-            const nombreArchivo = `documento_generado_${plantilla.id_plantilla}_${Date.now()}.docx`;
-            console.log(`✅ DOCX generado: ${nombreArchivo}`);
-            
+            const nombreArchivo = `documento_generado_${plantilla.id_plantilla}_${Date.now()}.docx`;            
             return [nombreArchivo, buffer];
         }
 
-        // Método privado para procesar archivos XLSX
         private async procesarExcel(
             plantilla: any,
             templatePath: string,
             parametrosPersonalizados: Record<string, any>
         ): Promise<[string, Buffer]> {
-            console.log('🚀 Procesando archivo XLSX...');
             
             const workbook = new ExcelJS.Workbook();
             await workbook.xlsx.readFile(templatePath);
             
-            console.log('📋 Parámetros a aplicar:', parametrosPersonalizados);
 
             workbook.eachSheet((worksheet) => {
-                console.log(`📄 Procesando hoja: ${worksheet.name}`);
                 worksheet.eachRow((row, rowNumber) => {
                     row.eachCell((cell, colNumber) => {
                         if (cell.value && typeof cell.value === 'string') {
                             let cellValue = cell.value;
 
-                            // ✅ Usar parámetros personalizados dinámicos
                             Object.keys(parametrosPersonalizados).forEach(key => {
                                 const marker = `{${key}}`;
                                 if (cellValue.includes(marker)) {
@@ -334,7 +320,6 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                                         new RegExp(`\\{${key}\\}`, 'g'), 
                                         String(parametrosPersonalizados[key])
                                     );
-                                    console.log(`✅ Reemplazado ${marker} en celda ${rowNumber},${colNumber}`);
                                 }
                             });
 
@@ -350,18 +335,15 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                 : Buffer.from(excelBuffer as ArrayBuffer);
             
             const nombreArchivo = `documento_excel_${plantilla.id_plantilla}_${Date.now()}.xlsx`;
-            console.log(`✅ EXCEL generado: ${nombreArchivo}, Tamaño: ${buffer.length} bytes`);
             
             return [nombreArchivo, buffer];
         }
 
-        //  Método privado para procesar archivos XLS (legacy)
         private async procesarXls(
             plantilla: any,
             templatePath: string,
             parametrosPersonalizados: Record<string, any>
         ): Promise<[string, Buffer]> {
-            console.log('🚀 Procesando archivo XLS (legacy)...');
             
             const wb = XLSX.readFile(templatePath);
             
@@ -373,7 +355,6 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                     if (cell && cell.t === 's' && typeof cell.v === 'string') {
                         let v = cell.v as string;
                         
-                        // ✅ Usar parámetros personalizados dinámicos
                         Object.keys(parametrosPersonalizados).forEach((key) => {
                             v = v.replace(
                                 new RegExp(`\\{${key}\\}`, 'g'), 
@@ -390,7 +371,6 @@ import * as fs from 'fs';import { contains } from 'class-validator';
             const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
             const nombreArchivo = `documento_excel_${plantilla.id_plantilla}_${Date.now()}.xlsx`;
             
-            console.log(`✅ XLS convertido a XLSX: ${nombreArchivo}`);
             
             return [nombreArchivo, buffer];
         }
