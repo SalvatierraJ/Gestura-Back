@@ -37,6 +37,7 @@ export class StudentManagamentController {
     async createCarrera(@Body() body: any) {
         return this.estudianteService.createEstudiantes(body);
     }
+    
 
     @Put('/editar-estudiante/:id')
     async editEstudiante(@Request() req, @Body() body: any) {
