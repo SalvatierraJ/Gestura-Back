@@ -294,7 +294,7 @@ export class DefensaService {
                     }
                 }
 
-             
+
                 let areaSorteada: number | null = null;
                 let areaNombreSel: string | null = null;
 
@@ -587,10 +587,16 @@ export class DefensaService {
                 let fechaDefensa: string | null = null;
                 let horaDefensa: string | null = null;
                 if (defensa.fecha_defensa) {
-                    const d = new Date(defensa.fecha_defensa);
-                    fechaDefensa = d.toLocaleDateString("es-BO");
-                    let hora = d.toLocaleTimeString("es-BO", { hour: '2-digit', minute: '2-digit', hour12: true });
-                    horaDefensa = hora.replace(/\./g, "").toUpperCase();
+                    const original = new Date(defensa.fecha_defensa);
+                    const boliviaOffset = -4 * 60;
+                    const currentOffset = original.getTimezoneOffset();
+                    const adjusted = new Date(original.getTime() + (currentOffset - boliviaOffset) * 60 * 1000);
+                    fechaDefensa = adjusted.toLocaleDateString("es-BO");
+                    horaDefensa = adjusted.toLocaleTimeString("es-BO", {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                    }).replace(/\./g, "").toUpperCase();
                 }
 
                 return {
@@ -743,9 +749,16 @@ export class DefensaService {
                 let fechaDefensa: string | null = null;
                 let horaDefensa: string | null = null;
                 if (defensa.fecha_defensa) {
-                    const d = new Date(defensa.fecha_defensa);
-                    fechaDefensa = d.toLocaleDateString("es-BO"); // Formato dd/mm/aaaa
-                    horaDefensa = d.toLocaleTimeString("es-BO", { hour: '2-digit', minute: '2-digit', hour12: true }).replace(/\./g, "").toUpperCase(); // Formato HH:MM AM/PM
+                    const original = new Date(defensa.fecha_defensa);
+                    const boliviaOffset = -4 * 60;
+                    const currentOffset = original.getTimezoneOffset();
+                    const adjusted = new Date(original.getTime() + (currentOffset - boliviaOffset) * 60 * 1000);
+                    fechaDefensa = adjusted.toLocaleDateString("es-BO");
+                    horaDefensa = adjusted.toLocaleTimeString("es-BO", {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                    }).replace(/\./g, "").toUpperCase();
                 }
 
                 return {
@@ -844,14 +857,18 @@ export class DefensaService {
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
             const telefono = String(estudiante.Persona.telefono);
 
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
-                timeZone: 'America/La_Paz',
+            const utcDate = new Date(defensaInfo.fecha);
+
+            const boliviaDate = new Date(utcDate.getTime() - 4 * 60 * 60 * 1000);
+
+            const fechaFormateada = boliviaDate.toLocaleString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric',
                 hour: '2-digit',
-                minute: '2-digit'
+                minute: '2-digit',
+                hour12: true
             });
 
             let mensaje = `Estimado/a ${nombreCompleto}:\n\n`;
@@ -923,15 +940,18 @@ export class DefensaService {
                 select: { casos_de_estudio: { select: { url: true } } }
             });
 
-            // 3) Fecha/hora en zona de Bolivia
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
-                timeZone: 'America/La_Paz',
+            const utcDate = new Date(defensaInfo.fecha); 
+
+            const boliviaDate = new Date(utcDate.getTime() - 4 * 60 * 60 * 1000);
+
+            const fechaFormateada = boliviaDate.toLocaleString('es-BO', {
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric',
                 hour: '2-digit',
-                minute: '2-digit'
+                minute: '2-digit',
+                hour12: true
             });
 
             // 4) Paleta institucional
