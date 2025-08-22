@@ -12,9 +12,8 @@ export class DefensaService {
     async generarDefensa(estudiantes: number[] | number, body: any) {
         const estudiantesIds = Array.isArray(estudiantes) ? estudiantes : [estudiantes];
         const { sorteaArea, sorteaCaso, tipoDefensa } = body;
-        const fechaDefensa = new Date(body.fechaDefensa || body.fechaHora);
+        const fechaDefensa = new Date(body.fechaHora);
         const defensasCreadas: any[] = [];
-
         const shuffle = <T,>(arr: T[]): T[] => {
             const a = arr.slice();
             for (let i = a.length - 1; i > 0; i--) {
