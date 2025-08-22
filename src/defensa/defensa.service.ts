@@ -859,7 +859,9 @@ export class DefensaService {
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
             const telefono = String(estudiante.Persona.telefono);
 
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
+            const fechaUtc = new Date(defensaInfo.fecha);
+
+            const fechaFormateada = fechaUtc.toLocaleString('es-BO', {
                 timeZone: 'UTC',
                 weekday: 'long',
                 year: 'numeric',
@@ -939,7 +941,10 @@ export class DefensaService {
             });
 
             // 3) Fecha/hora en zona de Bolivia
-            const fechaFormateada = new Date(defensaInfo.fecha).toLocaleString('es-BO', {
+            const fechaUtc = new Date(defensaInfo.fecha);
+
+            // Mostrar la hora exacta tal como está guardada (UTC) sin conversión
+            const fechaFormateada = fechaUtc.toLocaleString('es-BO', {
                 timeZone: 'UTC',
                 weekday: 'long',
                 year: 'numeric',
