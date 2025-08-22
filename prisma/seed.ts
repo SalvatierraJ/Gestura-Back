@@ -59,6 +59,7 @@ async function main() {
             { Nombre: "Control de Acceso" },
             { Nombre: "Mis Defensas" },
             { Nombre: "Programar Materias" },
+            { Nombre: "Plantillas" },
         ],
         skipDuplicates: true,
     });

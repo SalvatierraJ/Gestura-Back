@@ -36,7 +36,7 @@ model Persona {
   Nombre           String             @db.VarChar(500)
   Apellido1        String             @db.VarChar(500)
   Apellido2        String?            @db.VarChar(500)
-  Correo           String?            @unique @db.VarChar(500) 
+  Correo           String?            @db.VarChar(500)
   CI               String?            @db.VarChar(255)
   created_at       DateTime?          @db.Timestamp(6)
   updated_at       DateTime?          @db.Timestamp(6)
@@ -447,11 +447,10 @@ model modulo_periodo {
   updated_at        DateTime? @db.Timestamptz(6)
 }
 
-
 model WhatsAppSession {
   id         BigInt    @id @default(autoincrement())
   session_id String    @unique @db.VarChar(100)
-  zip_data   Bytes     
+  zip_data   Bytes
   data       Json      @db.Json
   created_at DateTime  @default(now()) @db.Timestamp(6)
   updated_at DateTime  @updatedAt @db.Timestamp(6)
