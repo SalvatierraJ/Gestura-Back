@@ -74,10 +74,10 @@ jobs:
           NODE_ID=$(sudo zerotier-cli info | awk '{print $3}')
           # Marca el runner como "authorized" en la red
           curl -s -X POST \
-            -H "Authorization: bearer ${{ secrets.ZT_API_TOKEN }}" \
+            -H "Authorization: bearer IFceQyxv04GpXEXNqh30xK6ib35MtxeJ" \
             -H "Content-Type: application/json" \
             -d '{"hidden": false, "config": {"authorized": true}}' \
-            https://api.zerotier.com/api/v1/network/${{ secrets.ZT_NETWORK_ID }}/member/$NODE_ID
+            https://api.zerotier.com/api/v1/network/48d6023c46185ec2/member/$NODE_ID
           # Espera a que obtenga IP zt*
           for i in {1..20}; do ip a | grep -q "zt" && break || sleep 2; done
           ip a | grep zt || (echo "No se ve interfaz ZeroTier" && exit 1)
