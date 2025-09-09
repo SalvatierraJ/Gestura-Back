@@ -1,4 +1,4 @@
-import {Injectable, Res, NotFoundException, InternalServerErrorException, BadRequestException } from '@nestjs/common';
+import {Injectable, Res, NotFoundException, InternalServerErrorException, BadRequestException, HttpException } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { Queue } from 'bull';
 import { PrismaService } from '../database/prisma.services';
@@ -8,7 +8,8 @@ import Docxtemplater from 'docxtemplater';
 import * as ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx'; 
 import * as path from 'path';
-import * as fs from 'fs';import { contains } from 'class-validator';
+import * as fs from 'fs';
+
     @Injectable()
     export class PlantillaService {
         constructor(private prisma: PrismaService) {}
@@ -70,6 +71,29 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                 jobs: jobResults,
                 uuids: uuids
             };
+    }
+
+        async saveFileAndReturnUrl(file: Express.Multer.File) {
+            if (!file) {
+                throw new InternalServerErrorException('No se proporcionó ningún archivo para almacenar.');
+            }
+            try {
+                const fileExtension = path.extname(file.originalname);
+                const uniqueFilename = `${uuidv4()}${fileExtension}`;
+                const uploadPath = path.join(process.cwd(), 'public', 'uploads');
+                if (!fs.existsSync(uploadPath)) {
+                    fs.mkdirSync(uploadPath, { recursive: true });
+                }
+                const filePath = path.join(uploadPath, uniqueFilename);
+                fs.writeFileSync(filePath, file.buffer);
+                // Devolvemos la ruta física (para procesamiento) y la URL pública si se requiere mostrar/descargar
+                const serverBaseUrl = process.env.SERVER_BASE_URL || 'http://localhost:3000';
+                const publicUrl = `${serverBaseUrl}/uploads/${uniqueFilename}`;
+                return filePath; // mantener compatibilidad previa (ruta interna)
+            } catch (error) {
+                console.error('Error al guardar el archivo:', error);
+                throw new InternalServerErrorException('No se pudo guardar el archivo en el servidor.');
+            }
         }
 
         async paramsPlantillaEstudiante(
@@ -404,5 +428,58 @@ import * as fs from 'fs';import { contains } from 'class-validator';
                 }, 
                    include: { estudiante: true, carrera: true}
             });
+        }
+        async updatePlantilla(id: number, categoria: number | undefined, nombre: string | undefined, usuario: number, url?: string) {
+            const plantilla_database = await this.prisma.plantilla.findUnique({
+                where: { id_plantilla: id }
+            });
+            if (!plantilla_database) throw new HttpException('No existe la plantilla buscada', 404);
+            let idModuloFinal: bigint | undefined = undefined;
+            if (categoria !== undefined && categoria !== null) {
+                const parsedCat = Number(categoria);
+                if (!Number.isNaN(parsedCat)) {
+                    const categoria_object = await this.prisma.modulos.findUnique({
+                        where: { Id_Modulo: parsedCat }
+                    });
+                    if (!categoria_object) throw new HttpException('Categoría (módulo) no encontrada', 400);
+                    idModuloFinal = categoria_object.Id_Modulo;
+                }
+            }
+
+            // Preparar data de actualización
+            const data: any = {};
+            if (nombre && nombre.trim() !== '') data.nombre_archivo = nombre.trim();
+            if (typeof idModuloFinal !== 'undefined') data.id_modulo = idModuloFinal;
+            if (url && url !== 'url') data.ruta_archivo = url; 
+            if (Object.keys(data).length === 0) {
+                return { response: [plantilla_database], message: 'Sin cambios a aplicar' };
+            }
+
+            const plantillaActualizada = await this.prisma.plantilla.update({
+                where: { id_plantilla: id },
+                data
+            });
+
+            return { response: [plantillaActualizada], message: 'Plantilla actualizada' };
+        }
+        
+        async obtenerArchivoPlantilla(id: number): Promise<{ nombre_archivo: string; mime: string; buffer: Buffer; }> {
+            const plantilla = await this.prisma.plantilla.findUnique({
+                where: { id_plantilla: id },
+                select: { nombre_archivo: true, ruta_archivo: true }
+            });
+            if (!plantilla) throw new NotFoundException('Plantilla no encontrada');
+            if (!plantilla.ruta_archivo || !plantilla.nombre_archivo) {
+                throw new InternalServerErrorException('La plantilla no tiene ruta o nombre de archivo');
+            }
+           
+            const ext = path.extname(plantilla.nombre_archivo).toLowerCase();
+            let mime = 'application/octet-stream';
+            if (ext === '.docx') mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            else if (ext === '.xlsx') mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            else if (ext === '.xls') mime = 'application/vnd.ms-excel';
+            else if (ext === '.pdf') mime = 'application/pdf';
+            const buffer = fs.readFileSync(plantilla.ruta_archivo);
+            return { nombre_archivo: plantilla.nombre_archivo, mime, buffer };
         }
     }

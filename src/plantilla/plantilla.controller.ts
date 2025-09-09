@@ -1,11 +1,14 @@
 import {PlantillaService} from './plantilla.service';
-import { Controller, Post, Response, Get, Delete, UploadedFiles,  StreamableFile , UseInterceptors, Body, Param, Query, ParseIntPipe, UseGuards, Request, HttpException} from '@nestjs/common';
+import { Controller, Post, Response, Get, Delete, UploadedFiles,  StreamableFile , UseInterceptors,   UploadedFile,   Body, Param, Query, ParseIntPipe, UseGuards, Request, HttpException, Put, ParseFilePipe} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { multerConfig } from './multer.config';
 import { Response as ExpressResponse } from 'express';
+import { isNumber } from 'class-validator';
 @Controller('plantilla-service')
 export class PlantillaController{ 
     constructor(
@@ -95,15 +98,15 @@ export class PlantillaController{
             };
         }
     }
-
-    @Delete(':id_plantilla')
+    @UseGuards(JwtAuthGuard)
+    @Delete('/plantilla/delete/:id_plantilla')
     async deletePlantilla(
         @Param('id_plantilla') id_plantilla: string,
-        @Body('id_usuario') id_usuario: string
+        @Request() request
     ): Promise<any> {
         try {
             const plantillaIdBigInt = BigInt(id_plantilla);
-            const userIdBigInt = BigInt(id_usuario);
+            const userIdBigInt = BigInt(request.user.userId);
             
             const result = await this.plantillaservice.deletePlantilla(plantillaIdBigInt, userIdBigInt);
             
@@ -201,5 +204,36 @@ export class PlantillaController{
             throw new HttpException("El parametro debe ser un numero", 400)
         }
         return await this.plantillaservice.getEstudiante(Number(id_estudiante));
+    }
+
+    @Put('update/plantilla/:plantilla')
+    @UseInterceptors(FileInterceptor('file'))
+    @UseGuards(JwtAuthGuard)    
+    async actualizarPlantilla(@Param("plantilla") plantilla,  @Request() request, @UploadedFile(new ParseFilePipe({validators: [], fileIsRequired: false})) file?: Express.Multer.File) {
+        plantilla = Number(plantilla); 
+        const nombre = request.body.nombre_archivo;
+        const categoria = request.body.categoria
+        const usuario = Number(request.user.userId);
+        let url = "url"
+          if(file) { 
+             url = await this.plantillaservice.saveFileAndReturnUrl(file );
+        }
+        return await this.plantillaservice.updatePlantilla(plantilla, categoria, nombre,  usuario, url);
+    }
+
+
+    @Get('getPlantilla/plantilla/:idPlantilla') 
+    async obtenerPlantilla(@Param('idPlantilla') idPlantilla) {
+        return await this.plantillaservice.obtenerArchivoPlantilla(idPlantilla);    
+     }
+ 
+    // Descarga de archivo de plantilla por ID
+    @Get('plantillas/archivo/:id')
+    async descargarArchivo(@Param('id') id: string, @Response() res: ExpressResponse) {
+        const file = await this.plantillaservice.obtenerArchivoPlantilla(Number(id));
+        res.setHeader('Content-Type', file.mime);
+        res.setHeader('Content-Disposition', `attachment; filename="${file.nombre_archivo}"`);
+        res.setHeader('Content-Length', file.buffer.length.toString());
+        res.end(file.buffer);
     }
 } 
