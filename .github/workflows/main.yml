@@ -41,8 +41,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: salvatierraj
-          password: "7@21sd08VJ"
+          username: //aqui va su surio
+          password: //aqui va su contrasena
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
