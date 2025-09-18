@@ -1,9 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { BitacoraService } from 'src/bitacora/bitacora.service';
+import { Console } from 'node:console';
 
 @Injectable()
 export class CasosEstudioService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private CloudinaryService: CloudinaryService,
+    private bitacoraService: BitacoraService,
+
+  ) { }
 
   // ----- Helpers -----
   private mapCaso(caso: any) {
@@ -105,7 +113,7 @@ export class CasosEstudioService {
       const whereClause: any = {
         id_area: { in: areaIds },
         delete_status: { not: true },
-        delete_at: null,             
+        delete_at: null,
         ...(word && {
           Nombre_Archivo: { contains: word, mode: 'insensitive' },
         }),
@@ -261,7 +269,7 @@ export class CasosEstudioService {
         where: { id_casoEstudio: id },
         data: {
           delete_status: true,
-          estado: false, 
+          estado: false,
           delete_at: new Date(),
           updated_at: new Date(),
         },
@@ -282,7 +290,7 @@ export class CasosEstudioService {
           id_casoEstudio: { not: id },
           delete_status: { not: true },
           delete_at: null,
-          
+
           id_area: c.id_area,
           Nombre_Archivo: { equals: c.Nombre_Archivo, mode: 'insensitive' },
         },
@@ -299,7 +307,7 @@ export class CasosEstudioService {
         data: {
           delete_status: false,
           delete_at: null,
-          estado: true, 
+          estado: true,
           updated_at: new Date(),
         },
       });
@@ -318,30 +326,55 @@ export class CasosEstudioService {
     throw new Error('Petición inválida para updateStateOrDeleteCasoEstudio');
   }
 
-  // ----- Mantener edición (sin cambios funcionales) -----
   async updateCasoEstudio(
     id_casoEstudio: number,
+    id_usuario: bigint, // Necesitas el ID del usuario para la bitácora
     datos: {
-      Titulo: string;
-      Autor: string;
-      Tema: string;
-      Fecha_Creacion: Date;
-      id_area: number;
-    }
+      Titulo?: string;
+      Autor?: string;
+      Tema?: string;
+      Fecha_Creacion?: Date;
+      id_area?: number;
+    },
+    newFile?: Express.Multer.File
   ) {
     try {
+      const casoDeEstudioActual = await this.prisma.casos_de_estudio.findUnique({
+        where: { id_casoEstudio: BigInt(id_casoEstudio) },
+      });
+      if (!casoDeEstudioActual) {
+        throw new BadRequestException('Caso de estudio no encontrado.');
+      }
+
+      const updateData: any = {
+        updated_at: new Date(),
+      };
+
+      if (!newFile && Object.keys(datos).length > 0) {
+        await this.bitacoraService.log({
+          Tabla_Afectada: 'casos_de_estudio',
+          id_registros_afectados: BigInt(id_casoEstudio),
+          operacion: 'UPDATE_METADATA',
+          Usuario_Responsable: id_usuario,
+          detalles: {
+            metadatos_actualizados: datos,
+          },
+        });
+      }
+
+      // Actualizar los metadatos si se proporcionan
+      if (datos.Titulo) updateData.Nombre_Archivo = datos.Titulo;
+      if (datos.Fecha_Creacion) updateData.fecha_Subida = datos.Fecha_Creacion;
+      if (datos.id_area) updateData.id_area = datos.id_area;
+
       const updatedCaso = await this.prisma.casos_de_estudio.update({
-        where: { id_casoEstudio },
-        data: {
-          Nombre_Archivo: datos.Titulo,
-          fecha_Subida: datos.Fecha_Creacion,
-          id_area: datos.id_area,
-          updated_at: new Date(),
-        },
+        where: { id_casoEstudio: BigInt(id_casoEstudio) },
+        data: updateData,
       });
 
+      // Actualizar los metadatos en la tabla `metadatos`
       await this.prisma.metadatos.updateMany({
-        where: { modelo_Origen: 'casos_de_estudio', Id_Origen: id_casoEstudio },
+        where: { modelo_Origen: 'casos_de_estudio', Id_Origen: BigInt(id_casoEstudio) },
         data: {
           Titulo: datos.Titulo,
           Autor: datos.Autor,
@@ -356,6 +389,5 @@ export class CasosEstudioService {
       throw new Error(`Error updating case study: ${error.message}`);
     }
   }
-
 
 }

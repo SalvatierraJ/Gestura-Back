@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Request,Req, UseGuards, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { DefensaService } from 'src/defensa/defensa.service';
 import { UpdateEstudianteStateOrDeleteDto } from 'src/estudiante/dto/update-estado-o-borrado.dto';
 import { EstudianteService } from 'src/estudiante/estudiante.service';
+import { FilesInterceptor } from '@nestjs/platform-express';
 
 @Controller('student-managament')
 export class StudentManagamentController {
@@ -56,7 +57,27 @@ export class StudentManagamentController {
         return this.estudianteService.createEstudiantesMasivos(body);
     }
 
+    @Get('/getdefensas')
+    async getMisDefensas(@Req() req) {
+        const usuarioId = req.user['userId'];
+        return this.estudianteService.getMisDefensas(BigInt(usuarioId));
+    }
 
+    @Get('defensas/:id')
+    async getDetallesDefensa(@Param('id') id: string) {
+        const id_defensa = BigInt(id);
+        return this.estudianteService.getDetallesDefensa(id_defensa);
+    }
+
+    @Post('defensas/:id/subir-documento')
+    @UseInterceptors(FilesInterceptor('files'))
+    async subirDocumentosDefensa(
+        @Param('id') id: string,
+        @UploadedFiles() files: Express.Multer.File[]
+    ) {
+        const id_defensa_convertido = BigInt(id);
+        return this.estudianteService.subirDocumentosDefensa(id_defensa_convertido, files);
+    }
 
 
 }

@@ -1,11 +1,15 @@
 import { Persona } from './../../node_modules/.prisma/client/index.d';
 import { Injectable, HttpException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class EstudianteService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private readonly CloudinaryService: CloudinaryService,
+  ) { }
 
   async createEstudiantes(body: any) {
     try {
@@ -606,6 +610,193 @@ export class EstudianteService {
         },
       });
       return updated;
+    }
+  }
+
+async getMisDefensas(Id_Usuario: bigint) {
+    try {
+      const usuario = await this.prisma.usuario.findUnique({
+        where: { Id_Usuario },
+        include: { Persona: true },
+      });
+
+      if (!usuario || !usuario.Persona) {
+        throw new HttpException('Usuario o persona no encontrada.', 404);
+      }
+
+      const estudiante = await this.prisma.estudiante.findFirst({
+        where: { id_Persona: usuario.Id_Persona },
+      });
+
+      if (!estudiante) {
+        throw new HttpException('No se encontró un registro de estudiante asociado a este usuario.', 404);
+      }
+
+      const defensas = await this.prisma.defensa.findMany({
+        where: { id_estudiante: estudiante.id_estudiante },
+        include: {
+          Tipo_Defensa: true,
+          area: true,
+          archivos_defensa: true,
+          tribunal_defensa: {
+            select: {
+              id_tribunalDefensa: true,
+              tribunal_Docente: {
+                select: {
+                  Persona: {
+                    select: {
+                      Nombre: true,
+                      Apellido1: true,
+                      Apellido2: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const defensasFormateadas = defensas.map((defensa) => {
+        const tribunal = defensa.tribunal_defensa.map((td) => {
+          const persona = td.tribunal_Docente?.Persona;
+          return {
+            nombreCompleto: `${persona?.Nombre || ''} ${persona?.Apellido1 || ''} ${persona?.Apellido2 || ''}`.trim(),
+          };
+        });
+
+        const tieneDocumentosSubidos = defensa.archivos_defensa.length > 0;
+        
+        const plazo_expirado = defensa.fecha_defensa 
+          ? new Date() > new Date(defensa.fecha_defensa) 
+          : false;
+
+        return {
+          id_defensa: defensa.id_defensa,
+          fecha_defensa: defensa.fecha_defensa,
+          estado: defensa.estado,
+          aula: defensa.aula,
+          nota: defensa.nota,
+          tipo: defensa.Tipo_Defensa?.Nombre || 'N/A',
+          area: defensa.area?.nombre_area || 'N/A',
+          tribunal: tribunal,
+          tieneDocumentosSubidos: tieneDocumentosSubidos,
+          plazo_expirado: plazo_expirado,
+        };
+      });
+
+      return defensasFormateadas;
+    } catch (error) {
+      console.error('Error al obtener las defensas del estudiante:', error);
+      throw new HttpException(
+        `Error al obtener las defensas: ${error.message}`,
+        500,
+      );
+    }
+  }
+
+  async getDetallesDefensa(id_defensa: bigint) {
+    try {
+      console.log('Buscando defensa con ID:', id_defensa);
+      const defensa = await this.prisma.defensa.findUnique({
+        where: { id_defensa },
+        include: {
+          Tipo_Defensa: true,
+          area: true,
+          casos_de_estudio: true,
+          archivos_defensa: true,
+          tribunal_defensa: {
+            include: {
+              tribunal_Docente: {
+                include: {
+                  Persona: true,
+                },
+              },
+            },
+          },
+        },
+      });
+        console.log('Resultado de la base de datos:', defensa);
+      if (!defensa) {
+        throw new HttpException('Detalles de la defensa no encontrados.', 404);
+      }
+
+      const defensaFormateada = {
+        ...defensa,
+        tipo: defensa.Tipo_Defensa?.Nombre || 'N/A',
+        areaNombre: defensa.area?.nombre_area || 'N/A',
+        tribunal: defensa.tribunal_defensa.map(td => ({
+          nombre: td.tribunal_Docente?.Persona?.Nombre || '',
+          apellido1: td.tribunal_Docente?.Persona?.Apellido1 || '',
+          apellido2: td.tribunal_Docente?.Persona?.Apellido2 || '',
+        })),
+        plazo_expirado: defensa.fecha_defensa ? new Date() > new Date(defensa.fecha_defensa) : false,
+      };
+
+      return defensaFormateada;
+    } catch (error) {
+      console.error('Error al obtener detalles de la defensa:', error);
+      throw new HttpException(
+        `Error al obtener detalles de la defensa: ${error.message}`,
+        500,
+      );
+    }
+  }
+
+  async subirDocumentosDefensa(id_defensa: bigint, files: Express.Multer.File[]) {
+    try {
+      if (!files || files.length === 0) {
+        throw new HttpException('Debe subir al menos un archivo.', 400);
+      }
+
+      const defensa = await this.prisma.defensa.findUnique({
+        where: { id_defensa },
+      });
+
+      if (!defensa) {
+        throw new HttpException('Defensa no encontrada.', 404);
+      }
+
+      const resultadosSubida: any[] = [];
+
+      for (const file of files) {
+        const uploadResult = (await this.CloudinaryService.uploadFile(file)) as { secure_url: string };
+        const urlArchivo = uploadResult.secure_url;
+
+        let tipoArchivo: number;
+        if (file.mimetype.includes('pdf')) {
+          tipoArchivo = 1;
+        } else if (file.mimetype.includes('word')) {
+          tipoArchivo = 2;
+        } else {
+          throw new HttpException(`Tipo de archivo no soportado para el archivo: ${file.originalname}`, 400);
+        }
+
+        const nuevoArchivo = await this.prisma.archivos_defensa.create({
+          data: {
+            id_defensa: id_defensa,
+            nombre_Archivo: file.originalname,
+            tipo_archivo: BigInt(tipoArchivo),
+            ruta_archivo: urlArchivo,
+            fecha_subida: new Date(),
+            created_at: new Date(),
+            updated_at: new Date()
+          },
+        });
+
+        resultadosSubida.push(nuevoArchivo);
+      }
+
+      return {
+        message: 'Documentos subidos y registrados exitosamente.',
+        archivos: resultadosSubida,
+      };
+    } catch (error) {
+      console.error('Error al subir documentos de defensa:', error);
+      throw new HttpException(
+        `Error al subir documentos: ${error.message}`,
+        500
+      );
     }
   }
 

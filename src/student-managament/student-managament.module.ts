@@ -6,9 +6,10 @@ import { JwtStrategy } from 'src/auth/strategy/jwt.strategy';
 import { PrismaService } from 'src/database/prisma.services';
 import { DefensaService } from 'src/defensa/defensa.service';
 import { NotificacionModule } from 'src/notificacion/notificacion.module';
+import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 
 @Module({
-  imports: [NotificacionModule],
+  imports: [NotificacionModule, CloudinaryModule],
   providers: [StudentManagamentService, EstudianteService, JwtStrategy,
     PrismaService, DefensaService],
   controllers: [StudentManagamentController]

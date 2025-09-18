@@ -11,7 +11,7 @@ model Bitacora {
   id_bitacora            BigInt    @id @default(autoincrement())
   Tabla_Afectada         String?   @db.VarChar(500)
   id_registros_afectados BigInt?
-  operacion              BigInt?
+  operacion              String?
   Usuario_Responsable    BigInt?
   fecha_Hora             DateTime? @db.Timestamp(6)
   detalles               Json?     @db.Json

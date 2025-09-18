@@ -40,6 +40,8 @@ import { IaService } from './ia/ia.service';
 import { IaModule } from './ia/ia.module';
 import { ModuloPeriodoService } from './modulo-periodo/modulo-periodo.service';
 import { ModuloPeriodoModule } from './modulo-periodo/modulo-periodo.module';
+import { BitacoraModule } from './bitacora/bitacora.module';
+
 @Module({
   imports: [
     BullModule.forRoot({
@@ -87,8 +89,9 @@ import { ModuloPeriodoModule } from './modulo-periodo/modulo-periodo.module';
     RedisModule,
     IaModule,
     ModuloPeriodoModule,
+    BitacoraModule
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService, CasosEstudioService, RedisService, ChatbotService, GeminiService, IaService, ModuloPeriodoService],
+  providers: [AppService, PrismaService, RedisService, ChatbotService, GeminiService, IaService, ModuloPeriodoService],
 })
 export class AppModule { }

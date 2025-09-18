@@ -3,13 +3,12 @@ CREATE TABLE "public"."Bitacora" (
     "id_bitacora" BIGSERIAL NOT NULL,
     "Tabla_Afectada" VARCHAR(500),
     "id_registros_afectados" BIGINT,
-    "operacion" BIGINT,
+    "operacion" VARCHAR(255),
     "Usuario_Responsable" BIGINT,
     "fecha_Hora" TIMESTAMP(6),
     "detalles" JSON,
     "created_at" TIMESTAMP(6),
     "updated_at" TIMESTAMP(6),
-
     CONSTRAINT "Bitacora_pkey" PRIMARY KEY ("id_bitacora")
 );
 

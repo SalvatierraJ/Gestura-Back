@@ -8,21 +8,19 @@ import { CarreraService } from 'src/carrera/carrera.service';
 import { AreaService } from 'src/area/area.service';
 import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 import { CasosEstudioService } from 'src/casos-estudio/casos-estudio.service';
-
+import { CasosEstudioModule } from 'src/casos-estudio/casos-estudio.module';
 
 @Module({
   controllers: [CaseStudyManagementController],
-  imports: [CloudinaryModule],
+  imports: [ CasosEstudioModule,CloudinaryModule],
   providers: [
     CaseStudyManagementService,
     JwtStrategy,
     PrismaService,
     FacultadService,
     CarreraService,
-    AreaService,
-    CasosEstudioService
-    
-  ]
-  
+    AreaService
+  ],
+  exports: [CaseStudyManagementService],
 })
 export class CaseStudyManagementModule {}

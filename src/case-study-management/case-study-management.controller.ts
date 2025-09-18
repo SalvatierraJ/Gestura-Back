@@ -219,14 +219,38 @@ export class CaseStudyManagementController {
         return this.CasosEstudioService.updateStateOrDeleteCasoEstudio(id, body);
     }
 
-    @Put("/casos/:id")
+     @Put("/casos/:id")
+    @UseGuards(JwtAuthGuard)
+    @UseInterceptors(FilesInterceptor('file', 1, {
+      fileFilter: (req, file, cb) => {
+        if (file) {
+          const validMimeTypes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          ];
+          if (!validMimeTypes.includes(file.mimetype)) {
+              cb(
+                  new BadRequestException('Solo se permiten archivos PDF y Word'),
+                  false
+              );
+          }
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }))
     async updateCasoEstudio(
         @Request() req,
-        @Body() dto: UpdateCasoEstudioDto
+        @Param('id') idParam: Number,
+        @Body() dto: UpdateCasoEstudioDto,
+        @UploadedFiles() files: Express.Multer.File[]
     ) {
-        const id = Number(req.params.id);
-        return this.CasosEstudioService.updateCasoEstudio(id, dto);
+        const id = Number(idParam);
+        const userId = BigInt(req.user.userId);
+        const file = files && files.length > 0 ? files[0] : undefined;
+        
+        // Llama al servicio unificado con los metadatos y el archivo opcional
+        return this.CasosEstudioService.updateCasoEstudio(id, userId, dto, file);
     }
-
-
 }
