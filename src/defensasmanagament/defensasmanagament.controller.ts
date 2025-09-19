@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+ import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { DefensaService } from 'src/defensa/defensa.service';
 import { JuradosService } from 'src/jurados/jurados.service';
@@ -82,5 +82,35 @@ export class DefensasmanagamentController {
         return this.defensaService.eliminarDefensa(id, { force: force === 'false' });
     }
 
+
+       /**
+     * Endpoint para ENVIAR por correo la notificación de la última defensa de uno o varios estudiantes.
+     * POST /defensasmanagament/enviar-notificacion-email-ultima-defensa
+     * Body: { estudiantes: number[] | number }
+     */
+    @Post('/enviar-notificacion-email-ultima-defensa')
+    async enviarNotificacionEmailUltimaDefensa(@Body() body: { estudiantes: number[] | number }) {
+        const estudiantesIds = Array.isArray(body.estudiantes) ? body.estudiantes : [body.estudiantes];
+        const resultados: { idEstudiante: number; enviado: boolean; datos?: any; error?: string }[] = [];
+        for (const idEstudiante of estudiantesIds) {
+            // Reutiliza el método de preview para obtener la defensa
+            const preview = await this.defensaService.previewNotificacionEmailUltimaDefensa(idEstudiante);
+            const info = Array.isArray(preview) ? preview[0] : preview;
+            if (info && !info.error) {
+                const datos = {
+                    area: info.area,
+                    caso: info.caso,
+                    fecha: info.fecha,
+                    tipo_defensa: info.tipo_defensa,
+                    estado: info.estado
+                };
+                await this.defensaService.enviarNotificacionEmailDefensa(Number(idEstudiante), datos);
+                resultados.push({ idEstudiante, enviado: true, datos });
+            } else {
+                resultados.push({ idEstudiante, enviado: false, error: info?.error || 'No se encontró defensa' });
+            }
+        }
+        return resultados;
+    }
 
 }

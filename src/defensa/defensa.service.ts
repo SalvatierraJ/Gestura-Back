@@ -1,3 +1,4 @@
+
 import { Injectable, HttpException, HttpStatus, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import { NotificacionService } from 'src/notificacion/notificacion.service';
@@ -8,6 +9,54 @@ export class DefensaService {
         private prisma: PrismaService,
         private notificacionService: NotificacionService
     ) { }
+
+    /**
+     * Obtiene los datos de notificación de la última defensa de uno o varios estudiantes.
+     * No envía correos, solo retorna los datos que se enviarían.
+     */
+    async previewNotificacionEmailUltimaDefensa(estudiantes: number[] | number) {
+        const estudiantesIds = Array.isArray(estudiantes) ? estudiantes : [estudiantes];
+        const resultados: any[] = [];
+        for (const idEstudianteRaw of estudiantesIds) {
+            const idEstudiante = Number(idEstudianteRaw);
+            // Última defensa con joins necesarios
+            const defensa = await this.prisma.defensa.findFirst({
+                where: { id_estudiante: idEstudiante },
+                orderBy: { id_defensa: 'desc' },
+                include: {
+                    estudiante: { include: { Persona: true } },
+                    Tipo_Defensa: true,
+                    area: true,
+                    casos_de_estudio: true,
+                }
+            });
+            if (!defensa) {
+                resultados.push({ idEstudiante, error: 'No tiene defensas registradas' });
+                continue;
+            }
+            const persona = defensa.estudiante?.Persona;
+            const nombreCompleto = persona ? `${persona.Nombre} ${persona.Apellido1} ${persona.Apellido2 || ''}`.trim() : null;
+            const email = persona?.Correo || null;
+            const fechaUtc = defensa.fecha_defensa ? new Date(defensa.fecha_defensa) : null;
+            const fechaFormateada = fechaUtc ? fechaUtc.toLocaleString('es-BO', {
+                timeZone: 'UTC',
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : null;
+            resultados.push({
+                idEstudiante,
+                nombreCompleto,
+                email,
+                tipo_defensa: defensa.Tipo_Defensa?.Nombre || null,
+                area: defensa.area?.nombre_area || null,
+                caso: defensa.casos_de_estudio?.Nombre_Archivo || null,
+                url: defensa.casos_de_estudio?.url || null,
+                fecha: defensa.fecha_defensa,
+                fechaFormateada,
+                estado: defensa.estado,
+            });
+        }
+        return resultados;
+    }
 
     async generarDefensa(estudiantes: number[] | number, body: any) {
         const estudiantesIds = Array.isArray(estudiantes) ? estudiantes : [estudiantes];
@@ -836,7 +885,7 @@ export class DefensaService {
         return defensaActualizada;
     }
 
-    private async enviarNotificacionDefensa(idEstudiante: number, defensaInfo: any) {
+    public async enviarNotificacionDefensa(idEstudiante: number, defensaInfo: any) {
         try {
             // 1) Datos del estudiante
             const estudiante = await this.prisma.estudiante.findUnique({
@@ -852,6 +901,7 @@ export class DefensaService {
             // 2) URL del caso (si existiera)
             const linkcaso = await this.prisma.defensa.findFirst({
                 where: { id_estudiante: idEstudiante },
+                orderBy: { id_defensa: 'desc' },
                 select: { casos_de_estudio: { select: { url: true } } }
             });
 
@@ -917,7 +967,7 @@ export class DefensaService {
     }
 
 
-    private async enviarNotificacionEmailDefensa(idEstudiante: number, defensaInfo: any) {
+    public async enviarNotificacionEmailDefensa(idEstudiante: number, defensaInfo: any) {
         try {
             // 1) Datos del estudiante
             const estudiante = await this.prisma.estudiante.findUnique({
@@ -934,8 +984,9 @@ export class DefensaService {
             const email = String(estudiante.Persona.Correo);
 
             // 2) URL del caso (si existiera)
-            const linkcaso = await this.prisma.defensa.findFirst({
+               const linkcaso = await this.prisma.defensa.findFirst({
                 where: { id_estudiante: idEstudiante },
+                orderBy: { id_defensa: 'desc' },
                 select: { casos_de_estudio: { select: { url: true } } }
             });
 
@@ -955,7 +1006,7 @@ export class DefensaService {
 
 
             // 4) Paleta institucional
-            const colorRojo = '#B71C1C'; // rojo institucional
+            const colorRojo = '#B71C1C';
             const colorNegro = '#000000';
             const colorTexto = '#111111';
             const colorBorde = '#e6e6e6';
