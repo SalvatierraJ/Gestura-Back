@@ -64,7 +64,7 @@ export class NotificacionService {
                 authStrategy: new RemoteAuth({
                     clientId: 'whatsapp-main',
                     dataPath: './.wwebjs_auth',
-                     store: this.store,                   
+                    store: this.store,
                     backupSyncIntervalMs: 300000,
                 }),
                 puppeteer: {
@@ -334,49 +334,105 @@ export class NotificacionService {
     }
 
     // Método para enviar emails con plantilla personalizada
-    async sendEmailWithTemplate(to: string, subject: string, templateData: {
-        title: string;
-        message: string;
-        buttonText?: string;
-        buttonUrl?: string;
-    }) {
+    async sendEmailWithTemplate(
+        to: string,
+        subject: string,
+        templateData: {
+            title: string;
+            message: string;    // Puede ser HTML completo (Tabular) o solo contenido parcial
+            buttonText?: string;
+            buttonUrl?: string;
+        }
+    ) {
         try {
-            const htmlTemplate = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="utf-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>${templateData.title}</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-                        .header { background-color: #007bffff; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
-                        .content { background-color: #f8f9fa; padding: 30px; border-radius: 0 0 5px 5px; }
-                        .button { display: inline-block; background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
-                        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <h1>${templateData.title}</h1>
-                    </div>
-                    <div class="content">
-                        <p>${templateData.message}</p>
-                        ${templateData.buttonText && templateData.buttonUrl ?
-                    `<a href="${templateData.buttonUrl}" class="button">${templateData.buttonText}</a>` : ''
-                }
-                    </div>
-                    <div class="footer">
-                        <p>Este es un email automático del sistema Gestura.</p>
-                    </div>
-                </body>
-                </html>
-            `;
+            // 1) Utilidad simple para crear un texto alterno (text/plain)
+            const htmlToText = (html: string) => {
+                return html
+                    // quita estilos/scripts
+                    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+                    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+                    // saltos para <br> y <p>
+                    .replace(/<br\s*\/?>/gi, '\n')
+                    .replace(/<\/p>/gi, '\n\n')
+                    // elimina el resto de tags
+                    .replace(/<[^>]+>/g, ' ')
+                    // decodifica entidades comunes
+                    .replace(/&nbsp;/gi, ' ')
+                    .replace(/&amp;/gi, '&')
+                    .replace(/&quot;/gi, '"')
+                    .replace(/&#39;/gi, "'")
+                    .replace(/&lt;/gi, '<')
+                    .replace(/&gt;/gi, '>')
+                    // colapsa espacios
+                    .replace(/\s+\n/g, '\n')
+                    .replace(/\n\s+/g, '\n')
+                    .replace(/[ \t]{2,}/g, ' ')
+                    .trim();
+            };
 
-            return await this.sendEmail(to, subject, templateData.message, htmlTemplate);
+            // 2) Detectar si message es un HTML completo (Tabular)
+            const isFullHtml = /<!DOCTYPE|<html[\s>]/i.test(templateData.message);
+
+            let htmlTemplate: string;
+            let textAlt: string;
+
+            if (isFullHtml) {
+                // Caso A: el message YA es un HTML completo (tu plantilla Tabular)
+                htmlTemplate = templateData.message;
+                // texto alterno básico con título+botón (si viene)
+                const extras =
+                    templateData.buttonText && templateData.buttonUrl
+                        ? `\n\n${templateData.buttonText}: ${templateData.buttonUrl}`
+                        : '';
+                textAlt = `${templateData.title}\n\n${htmlToText(templateData.message)}${extras}`;
+            } else {
+                // Caso B: message es un fragmento. Usar wrapper existente (sin meterlo en <p>)
+                htmlTemplate = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${templateData.title}</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #007bffff; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+            .content { background-color: #f8f9fa; padding: 30px; border-radius: 0 0 5px 5px; }
+            .button { display: inline-block; background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${templateData.title}</h1>
+          </div>
+          <div class="content">
+            <div>${templateData.message}</div>
+            ${templateData.buttonText && templateData.buttonUrl
+                        ? `<a href="${templateData.buttonUrl}" class="button">${templateData.buttonText}</a>`
+                        : ''
+                    }
+          </div>
+          <div class="footer">
+            <p>Este es un email automático del sistema Gestura.</p>
+          </div>
+        </body>
+        </html>
+      `.trim();
+
+                const extras =
+                    templateData.buttonText && templateData.buttonUrl
+                        ? `\n\n${templateData.buttonText}: ${templateData.buttonUrl}`
+                        : '';
+                textAlt = `${templateData.title}\n\n${htmlToText(templateData.message)}${extras}`;
+            }
+
+            // 3) Enviar (textAlt como texto plano, htmlTemplate como HTML)
+            return await this.sendEmail(to, subject, textAlt, htmlTemplate);
         } catch (error) {
             this.logger.error(`❌ Error al enviar email con plantilla a ${to}:`, error);
             return false;
         }
     }
+
 }

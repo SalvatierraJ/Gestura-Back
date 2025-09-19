@@ -967,6 +967,7 @@ export class DefensaService {
     }
 
 
+
     public async enviarNotificacionEmailDefensa(idEstudiante: number, defensaInfo: any) {
         try {
             // 1) Datos del estudiante
@@ -981,19 +982,19 @@ export class DefensaService {
             }
 
             const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
+            const nombreUpper = nombreCompleto.toUpperCase();
             const email = String(estudiante.Persona.Correo);
 
             // 2) URL del caso (si existiera)
-               const linkcaso = await this.prisma.defensa.findFirst({
+            const linkcaso = await this.prisma.defensa.findFirst({
                 where: { id_estudiante: idEstudiante },
                 orderBy: { id_defensa: 'desc' },
                 select: { casos_de_estudio: { select: { url: true } } }
             });
+            const linkCasoUrl = linkcaso?.casos_de_estudio?.url || '';
 
-            // 3) Fecha/hora en zona de Bolivia
+            // 3) Fecha/hora en zona de Bolivia (mostrar UTC exacto como fue guardado)
             const fechaUtc = new Date(defensaInfo.fecha);
-
-            // Mostrar la hora exacta tal como está guardada (UTC) sin conversión
             const fechaFormateada = fechaUtc.toLocaleString('es-BO', {
                 timeZone: 'UTC',
                 weekday: 'long',
@@ -1004,171 +1005,410 @@ export class DefensaService {
                 minute: '2-digit'
             });
 
-
-            // 4) Paleta institucional
-            const colorRojo = '#B71C1C';
-            const colorNegro = '#000000';
-            const colorTexto = '#111111';
-            const colorBorde = '#e6e6e6';
-
-            // 5) Asunto + Template (formal, sin emojis)
+            // 4) Asunto + título por estado (sin cambiar la lógica)
             let asunto = '';
             let title = '';
-            let messageHTML = '';
-
-            const headerHTML = `
-      <div style="background:#ffffff;padding:24px 24px 8px 24px;font-family:Segoe UI,Roboto,Arial,sans-serif;color:${colorTexto};">
-        <div style="border-top:6px solid ${colorRojo};"></div>
-        <h1 style="margin:16px 0 4px 0;color:${colorNegro};font-size:20px;line-height:1.3;">
-          Universidad Tecnologica Privada de Santa Cruz
-        </h1>
-    `;
-
-            const footerHTML = `
-        <hr style="border:none;border-top:1px solid ${colorBorde};margin:20px 0;" />
-        <p style="margin:0;color:${colorTexto};font-size:12px;line-height:1.5;">
-          Este mensaje ha sido enviado por la Coordinación Académica.
-        </p>
-      </div>
-    `;
 
             if (defensaInfo.estado === 'ASIGNADO') {
                 asunto = `Programación de defensa – ${defensaInfo.tipo_defensa}`;
                 title = 'Programación de defensa';
-
-                messageHTML = `
-        ${headerHTML}
-        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
-        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
-        <p style="margin:0 0 12px 0;">
-          Le informamos que su defensa ha sido programada con los siguientes detalles:
-        </p>
-
-        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
-          <tr>
-            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
-            <td style="padding:6px 0;">${fechaFormateada}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
-            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
-          </tr>
-          ${defensaInfo.area ? `
-          <tr>
-            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Área asignada</td>
-            <td style="padding:6px 0;">${defensaInfo.area}</td>
-          </tr>` : ''}
-          ${defensaInfo.caso ? `
-          <tr>
-            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Caso de estudio</td>
-            <td style="padding:6px 0;">${defensaInfo.caso}</td>
-          </tr>` : ''}
-          ${linkcaso?.casos_de_estudio?.url ? `
-          <tr>
-            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Enlace al caso</td>
-            <td style="padding:6px 0;word-break:break-all;">
-              <a href="${linkcaso.casos_de_estudio.url}" style="color:${colorRojo};text-decoration:none;">
-                ${linkcaso.casos_de_estudio.url}
-              </a>
-            </td>
-          </tr>` : ''}
-        </table>
-
-        <div style="background:#fff;border:1px solid ${colorBorde};border-left:4px solid ${colorRojo};padding:12px;border-radius:4px;margin:12px 0;">
-          <p style="margin:0 0 8px 0;"><strong>Indicaciones:</strong></p>
-          <ul style="margin:0 0 0 18px;padding:0;">
-            <li>Preséntese con al menos 15 minutos de antelación.</li>
-            <li>Verifique su material y documentación.</li>
-            <li>Considere las instrucciones específicas de la coordinación.</li>
-          </ul>
-        </div>
-
-        <p style="margin:16px 0 0 0;">
-          Atentamente,<br/>
-          <strong>Coordinación Académica</strong>
-        </p>
-        ${footerHTML}
-      `;
             } else if (defensaInfo.estado === 'PENDIENTE') {
                 asunto = 'Defensa registrada – pendiente de asignación';
                 title = 'Defensa registrada';
-
-                messageHTML = `
-        ${headerHTML}
-        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
-        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
-        <p style="margin:0 0 12px 0;">
-          Su defensa ha sido registrada con los siguientes datos:
-        </p>
-
-        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
-          <tr>
-            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
-            <td style="padding:6px 0;">${fechaFormateada}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
-            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Estado</td>
-            <td style="padding:6px 0;">Pendiente de asignación completa</td>
-          </tr>
-        </table>
-
-        <div style="background:#fff;border:1px solid ${colorBorde};border-left:4px solid ${colorRojo};padding:12px;border-radius:4px;margin:12px 0;">
-          <p style="margin:0;">
-            Algunos detalles (como el área específica o el caso de estudio) están en proceso de asignación.
-            Le notificaremos por este mismo medio cuando se encuentren confirmados.
-          </p>
-        </div>
-
-        <p style="margin:16px 0 0 0;">
-          Atentamente,<br/>
-          <strong>Coordinación Académica</strong>
-        </p>
-        ${footerHTML}
-      `;
             } else {
-                // Fallback formal
                 asunto = 'Actualización sobre su defensa';
                 title = 'Actualización de registro';
-                messageHTML = `
-        ${headerHTML}
-        <h2 style="margin:0 0 16px 0;color:${colorRojo};font-size:18px;line-height:1.35;">${title}</h2>
-        <p style="margin:0 0 12px 0;">Estimado/a <strong>${nombreCompleto}</strong>:</p>
-        <p style="margin:0 0 12px 0;">
-          Se registró una actualización relacionada con su defensa.
-        </p>
-        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px 0;">
-          <tr>
-            <td style="padding:6px 0;width:180px;color:${colorNegro};font-weight:600;">Fecha y hora</td>
-            <td style="padding:6px 0;">${fechaFormateada}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:${colorNegro};font-weight:600;">Tipo de defensa</td>
-            <td style="padding:6px 0;">${defensaInfo.tipo_defensa}</td>
-          </tr>
-        </table>
-        <p style="margin:16px 0 0 0;">
-          Atentamente,<br/>
-          <strong>Coordinación Académica</strong>
-        </p>
-        ${footerHTML}
-      `;
             }
 
-            const templateData = {
-                title,          // si tu plantilla usa el título aparte
-                message: messageHTML
+            // 5) Constructor de plantilla Tabular (sin alterar diseño)
+            const buildTabularHtml = ({
+                title,
+                nombreUpper,
+                fechaFormateada,
+                tipoDefensa,
+                area,
+                caso,
+                linkCasoUrl
+            }: {
+                title: string;
+                nombreUpper: string;
+                fechaFormateada: string;
+                tipoDefensa: string;
+                area?: string;
+                caso?: string;
+                linkCasoUrl?: string;
+            }) => {
+                const areaRow = area ? `
+<tr><td align="center">
+  <table class="t51" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+    <tr><td width="448" class="t50" style="width:694px;">
+      <table class="t49" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+        <tr><td class="t48">
+          <p class="t46" style="margin:0;Margin:0;font-family:Roboto,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:400;font-size:16px;color:#333333;text-align:left;">
+            <span class="t43" style="font-weight:bold;">Área asignada:</span>
+            <span class="t45"><span class="t44" style="font-weight:400;"> ${area}</span></span>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td><div class="t56" style="line-height:4px;font-size:1px;display:block;">&nbsp;&nbsp;</div></td></tr>
+` : '';
+
+                const casoRow = caso ? `
+<tr><td align="center">
+  <table class="t60" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+    <tr><td width="448" class="t59" style="width:694px;">
+      <table class="t58" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+        <tr><td class="t57">
+          <p class="t55" style="margin:0;Margin:0;font-family:Roboto,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:400;font-size:16px;color:#333333;text-align:left;">
+            <span class="t52" style="font-weight:bold;">Caso de estudio: </span>
+            <span class="t54"><span class="t53" style="font-weight:400;">${caso}</span></span>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</td></tr>
+` : '';
+
+                const botonRow = linkCasoUrl ? `
+<tr><td align="center">
+  <table class="t73" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+    <tr><td width="510" class="t72" style="width:800px;">
+      <table class="t71" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+        <tr><td class="t70" style="border:1px solid #E3E3E3;overflow:hidden;padding:10px;border-radius:0 0 6px 6px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
+            <tr><td align="center">
+              <table class="t69" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                <tr><td width="488" class="t68" style="width:600px;">
+                  <table class="t67" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                    <tr>
+                      <td class="t66" style="overflow:hidden;background-color:#FF595F;text-align:center;line-height:24px;padding:18px 14px;border-radius:4px;">
+                        <a href="${linkCasoUrl}" target="_blank" style="display:block;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-weight:700;font-size:16px;color:#FFFFFF;text-align:center;text-decoration:none;">
+                          DESCARGAR CASO DE ESTUDIO
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</td></tr>
+` : '';
+
+                // ——— Plantilla completa (Tabular) con inserciones dinámicas ———
+                return `<!--
+* This email was built using Tabular.
+* For more information, visit https://tabular.email
+-->
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="x-apple-disable-message-reformatting" />
+<meta content="target-densitydpi=device-dpi" name="viewport" />
+<meta content="true" name="HandheldFriendly" />
+<meta content="width=device-width" name="viewport" />
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no" />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&amp;family=Roboto:wght@400;700&amp;display=swap" rel="stylesheet" type="text/css" />
+<title></title>
+<style type="text/css">
+/* (Se conserva el CSS original de Tabular tal cual, sin cambios de diseño) */
+table{border-collapse:separate;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt}table td{border-collapse:collapse}.ExternalClass{width:100%}.ExternalClass,.ExternalClass p,.ExternalClass span,.ExternalClass font,.ExternalClass td,.ExternalClass div{line-height:100%}body,a,li,p,h1,h2,h3{-ms-text-size-adjust:100%;-webkit-text-size-adjust:100%}html{-webkit-text-size-adjust:none!important}body{min-width:100%;Margin:0px;padding:0px}body,#innerTable{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}#innerTable img+div{display:none;display:none!important}img{Margin:0;padding:0;-ms-interpolation-mode:bicubic}h1,h2,h3,p,a{line-height:inherit;overflow-wrap:normal;white-space:normal;word-break:break-word}a{text-decoration:none}h1,h2,h3,p{min-width:100%!important;width:100%!important;max-width:100%!important;display:inline-block!important;border:0;padding:0;margin:0}a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important;font-size:inherit!important;font-family:inherit!important;font-weight:inherit!important;line-height:inherit!important}u + #body a{color:inherit;text-decoration:none;font-size:inherit;font-family:inherit;font-weight:inherit;line-height:inherit}a[href^="mailto"],a[href^="tel"],a[href^="sms"]{color:inherit;text-decoration:none}
+@media (min-width:481px){.hd{display:none!important}}
+@media (max-width:480px){.hm{display:none!important}}
+@media (max-width:480px){.t101,.t84,.t98{text-align:center!important}.t82,.t98,.t99{display:block!important}.t118{padding-left:30px!important;padding-right:30px!important}.t82{mso-line-height-alt:14px!important;line-height:14px!important}.t80{display:revert!important}.t83,.t97{vertical-align:middle!important;display:inline-block!important;width:100%!important}.t83{max-width:98px!important}.t97{max-width:800px!important}}
+</style>
+</head>
+<body id="body" class="t124" style="min-width:100%;Margin:0px;padding:0px;background-color:#FAFAFA;">
+<div class="t123" style="background-color:#FAFAFA;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center">
+    <tr>
+      <td class="t122" style="font-size:0;line-height:0;mso-line-height-rule:exactly;background-color:#FAFAFA;" valign="top" align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" id="innerTable">
+          <tr><td align="center">
+            <table class="t121" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+              <tr><td width="630" class="t120" style="width:630px;">
+                <table class="t119" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                  <tr><td class="t118" style="background-color:#FFFFFF;padding:40px 60px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
+                      <tr><td align="left">
+                        <!-- Logo/cuadro -->
+                        <table class="t4" role="presentation" cellpadding="0" cellspacing="0" style="Margin-right:auto;">
+                          <tr><td width="40" class="t3" style="width:40px;">
+                            <table class="t2" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t1">
+                                <div style="font-size:0px;">
+                                  <img class="t0" style="display:block;border:0;height:auto;width:100%;Margin:0;max-width:100%;" width="40" height="40" alt="" src="https://02f839bd-3369-4e6e-9247-1b8f6c6c8eb6.b-cdn.net/e/08283a31-7b1f-41ce-aa80-e84b0d4c4451/66ab8273-8d91-49b8-9923-8e143d2b0301.png"/>
+                                </div>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                      <tr><td><div class="t5" style="line-height:40px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+
+                      <tr><td align="center">
+                        <table class="t10" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                          <tr><td width="510" class="t9" style="width:744px;">
+                            <table class="t8" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t7">
+                                <h1 class="t6" style="margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:34px;font-weight:700;font-size:29px;color:#333333;text-align:center;">
+                                  Universidad Tecnologica Privada de Santa Cruz
+                                </h1>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                      <tr><td><div class="t11" style="line-height:11px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+
+                      <tr><td align="center">
+                        <table class="t16" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                          <tr><td class="t15">
+                            <table class="t14" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t13">
+                                <p class="t12" style="margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:500;font-size:16px;color:#333333;text-align:left;">
+                                  ${title}
+                                </p>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                      <tr><td><div class="t17" style="line-height:4px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+
+                      <!-- Bloque nombre -->
+                      <tr><td align="center">
+                        <table class="t77" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                          <tr><td width="510" class="t76" style="width:800px;">
+                            <table class="t75" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t74" style="padding:30px 0 10px 0;">
+                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
+                                  <tr><td align="center">
+                                    <table class="t27" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                                      <tr><td width="510" class="t26" style="width:800px;">
+                                        <table class="t25" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                                          <tr><td class="t24" style="border:1px solid #E3E3E3;overflow:hidden;padding:30px;border-radius:6px 6px 0 0;">
+                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
+                                              <tr><td align="center">
+                                                <table class="t23" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                                                  <tr><td width="448" class="t22" style="width:600px;">
+                                                    <table class="t21" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                                                      <tr><td class="t20">
+                                                        <p class="t19" style="margin:0;font-family:Roboto,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:400;font-size:16px;color:#333333;text-align:left;">
+                                                          <span class="t18" style="font-weight:bold;">${nombreUpper}</span>
+                                                        </p>
+                                                      </td></tr>
+                                                    </table>
+                                                  </td></tr>
+                                                </table>
+                                              </td></tr>
+                                            </table>
+                                          </td></tr>
+                                        </table>
+                                      </td></tr>
+                                    </table>
+                                  </td></tr>
+                                </table>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                      <!-- Detalles -->
+                      <tr><td align="center">
+                        <table class="t64" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                          <tr><td width="510" class="t63" style="width:800px;">
+                            <table class="t62" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t61" style="border:1px solid #E3E3E3;padding:30px;">
+                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
+                                  <tr><td align="center">
+                                    <table class="t34" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                                      <tr><td width="448" class="t33" style="width:600px;">
+                                        <table class="t32" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                                          <tr><td class="t31">
+                                            <p class="t30" style="margin:0;font-family:Roboto,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:400;font-size:16px;color:#333333;text-align:left;">
+                                              <span class="t28" style="font-weight:bold;">Fecha y hora: </span>
+                                              <span class="t29" style="font-weight:400;">${fechaFormateada}</span>
+                                            </p>
+                                          </td></tr>
+                                        </table>
+                                      </td></tr>
+                                    </table>
+                                  </td></tr>
+
+                                  <tr><td><div class="t38" style="line-height:4px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+
+                                  <tr><td align="center">
+                                    <table class="t42" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                                      <tr><td width="448" class="t41" style="width:600px;">
+                                        <table class="t40" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                                          <tr><td class="t39">
+                                            <p class="t37" style="margin:0;font-family:Roboto,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:400;font-size:16px;color:#333333;text-align:left;">
+                                              <span class="t35" style="font-weight:bold;">Tipo de defensa:&nbsp;</span>
+                                              <span class="t36" style="font-weight:400;">${tipoDefensa}</span>
+                                            </p>
+                                          </td></tr>
+                                        </table>
+                                      </td></tr>
+                                    </table>
+                                  </td></tr>
+
+                                  <tr><td><div class="t47" style="line-height:4px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+
+                                  ${areaRow}
+                                  ${casoRow}
+                                </table>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                      ${botonRow}
+
+                      <!-- Nota/indicaciones -->
+                      <tr><td><div class="t102" style="line-height:40px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+                      <tr><td align="center">
+                        <table class="t106" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                          <tr><td width="510" class="t105" style="width:800px;">
+                            <table class="t104" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t103" style="border-bottom:2px solid #EEEEEE;border-top:2px solid #EEEEEE;padding:25px 0;">
+                                <div class="t101" style="width:100%;text-align:left;">
+                                  <div class="t100" style="display:inline-block;">
+                                    <table class="t99" role="presentation" cellpadding="0" cellspacing="0" align="left" valign="middle">
+                                      <tr class="t98"><td></td>
+                                        <td class="t83" width="96.77" valign="middle">
+                                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="t81" style="width:100%;">
+                                            <tr><td class="t79" style="background-color:transparent;">
+                                              <div style="font-size:0px;">
+                                                <img class="t78" style="display:block;border:0;height:auto;width:100%;Margin:0;max-width:100%;" width="86.77" height="86.77" alt="" src="https://02f839bd-3369-4e6e-9247-1b8f6c6c8eb6.b-cdn.net/e/08283a31-7b1f-41ce-aa80-e84b0d4c4451/8e50d5af-81d4-43f9-b45a-82b24ea3e745.png"/>
+                                              </div>
+                                            </td><td class="t80" style="width:10px;" width="10"></td></tr>
+                                          </table>
+                                          <div class="t82" style="font-size:1px;display:none;">&nbsp;&nbsp;</div>
+                                        </td>
+                                        <td class="t97" width="413.22" valign="middle">
+                                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="t96" style="width:100%;">
+                                            <tr><td class="t95">
+                                              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
+                                                <tr><td align="center">
+                                                  <table class="t88" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                                                    <tr><td width="413.22" class="t87" style="width:600px;">
+                                                      <table class="t86" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                                                        <tr><td class="t85">
+                                                          <p class="t84" style="margin:0;font-family:Roboto,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:700;font-size:16px;color:#454545;text-align:left;">
+                                                            Preséntese con al menos 15 minutos de antelación.&nbsp;
+                                                          </p>
+                                                        </td></tr>
+                                                      </table>
+                                                    </td></tr>
+                                                  </table>
+                                                </td></tr>
+                                              </table>
+                                            </td></tr>
+                                            <tr><td><div class="t90" style="line-height:16px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+                                            <tr><td align="center">
+                                              <table class="t94" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                                                <tr><td width="413.22" class="t93" style="width:600px;">
+                                                  <table class="t92" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                                                    <tr><td class="t91">
+                                                      <p class="t89" style="margin:0;font-family:Roboto,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:400;font-size:16px;color:#333333;text-align:left;">
+                                                        Verifique su material y documentación. Considere las instrucciones específicas de la coordinación.
+                                                      </p>
+                                                    </td></tr>
+                                                  </table>
+                                                </td></tr>
+                                              </table>
+                                            </td></tr>
+                                          </table>
+                                        </td></tr>
+                                    </table>
+                                  </div>
+                                </div>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                      <tr><td><div class="t107" style="line-height:40px;font-size:1px;display:block;">&nbsp;</div></td></tr>
+
+                      <tr><td align="center">
+                        <table class="t112" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                          <tr><td class="t111">
+                            <table class="t110" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t109">
+                                <p class="t108" style="margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:500;font-size:13px;color:#949494;text-align:left;">
+                                  Este mensaje ha sido enviado por la Coordinación Académica.
+                                </p>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                      <tr><td align="center">
+                        <table class="t117" role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
+                          <tr><td class="t116">
+                            <table class="t115" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
+                              <tr><td class="t114">
+                                <p class="t113" style="margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:500;font-size:13px;color:#949494;text-align:left;">
+                                  Universidad Tecnologica Privada de Santa Cruz · Av. Noel Kempff Mercado 715, Santa Cruz de la Sierra
+                                </p>
+                              </td></tr>
+                            </table>
+                          </td></tr>
+                        </table>
+                      </td></tr>
+
+                    </table>
+                  </td></tr>
+                </table>
+              </td></tr>
+            </table>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>
+<div class="gmail-fix" style="display:none;white-space:nowrap;font:15px courier;line-height:0;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+</body>
+</html>`;
             };
 
-            // 6) Envío con timeout
+            // 6) Construcción del HTML según estado (sin alterar la lógica general)
+            let messageHTML = buildTabularHtml({
+                title,
+                nombreUpper,
+                fechaFormateada,
+                tipoDefensa: defensaInfo.tipo_defensa,
+                area: defensaInfo.area,
+                caso: defensaInfo.caso,
+                linkCasoUrl: linkCasoUrl
+            });
+
+            // 7) Envío con timeout (mismo mecanismo)
+            const templateData = { title, message: messageHTML };
+
             const envioExitoso = await Promise.race([
                 this.notificacionService.sendEmailWithTemplate(email, asunto, templateData),
-                new Promise<boolean>((_, reject) =>
-                    setTimeout(() => reject(new Error('Timeout al enviar email')), 30000)
-                )
+                new Promise<boolean>((_, reject) => setTimeout(() => reject(new Error('Timeout al enviar email')), 30000))
             ]);
 
             if (envioExitoso) {
@@ -1177,9 +1417,10 @@ export class DefensaService {
                 console.log(`No se pudo enviar el email a ${nombreCompleto} (${email})`);
             }
         } catch (error) {
-            console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, error?.message || error);
+            console.error(`❌ Error al enviar email al estudiante ${idEstudiante}:`, (error as any)?.message || error);
         }
     }
+
 
 
     private async enviarNotificacionCalificacion(defensa: any, nota: number, estado: string) {
