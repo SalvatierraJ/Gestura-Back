@@ -31,14 +31,18 @@ export class EstudianteService {
       const resultados = await Promise.all(
         estudiantes.map(async (estudiante) => {
           try {
-            const estudiantePorCI = await this.prisma.estudiante.findFirst({
-              where: {
-                Persona: {
-                  CI: String(estudiante.ci),
+               // Solo verificar CI duplicado si el CI no es null, undefined o vacio
+            let estudiantePorCI: any = null;
+            if (estudiante.ci !== null && estudiante.ci !== undefined && String(estudiante.ci).trim() !== "") {
+              estudiantePorCI = await this.prisma.estudiante.findFirst({
+                where: {
+                  Persona: {
+                    CI: String(estudiante.ci),
+                  },
                 },
-              },
-              include: { Persona: true },
-            });
+                include: { Persona: true },
+              });
+            }
 
             if (estudiantePorCI) {
               return {
