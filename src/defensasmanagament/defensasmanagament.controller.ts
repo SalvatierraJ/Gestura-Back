@@ -113,4 +113,30 @@ export class DefensasmanagamentController {
         return resultados;
     }
 
+    /**
+     * Endpoint para enviar mensajes personalizados de WhatsApp a múltiples estudiantes.
+     * POST /defensasmanagament/enviar-mensaje-whatsapp-masivo
+     * Body: { registros: string[], mensaje: string }
+     */
+    @Post('/enviar-mensaje-whatsapp-masivo')
+    async enviarMensajeWhatsAppMasivo(@Body() body: { registros: string[], mensaje: string }) {
+        if (!body.registros || !Array.isArray(body.registros) || body.registros.length === 0) {
+            throw new Error('Debe proporcionar un array de números de registro de estudiantes');
+        }
+        if (!body.mensaje || body.mensaje.trim() === '') {
+            throw new Error('Debe proporcionar un mensaje personalizado');
+        }
+        
+        return this.defensaService.enviarMensajeWhatsAppMasivoPorRegistro(body.registros, body.mensaje);
+    }
+
+    /**
+     * Endpoint para verificar el estado de WhatsApp
+     * GET /defensasmanagament/estado-whatsapp
+     */
+    @Get('/estado-whatsapp')
+    async getEstadoWhatsApp() {
+        return this.defensaService.getEstadoWhatsApp();
+    }
+
 }

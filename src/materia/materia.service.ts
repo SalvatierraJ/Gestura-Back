@@ -1626,6 +1626,7 @@ export class MateriaService {
                 detalle_estudiantes: {
                     nombre: string;
                     registro: string;
+                    telefono: string | null;
                     semestre_actual: number;
                 }[];
             }[];
@@ -1695,7 +1696,7 @@ export class MateriaService {
             });
 
             // Agrupación por horarios (preferencia del estudiante)
-            const conteoHorarios: Record<string, { estudiantes: Set<number>, detalle: { nombre: string, registro: string, semestre_actual: number }[] }> = {};
+            const conteoHorarios: Record<string, { estudiantes: Set<number>, detalle: { nombre: string, registro: string, telefono: string, semestre_actual: number }[] }> = {};
 
             estudiantesQueLaNecesitan.forEach(ec => {
                 const e = ec.estudiante;
@@ -1715,12 +1716,12 @@ export class MateriaService {
                         conteoHorarios[turnoElegido].detalle.push({
                             nombre: `${e.Persona?.Nombre || ''} ${e.Persona?.Apellido1 || ''}`.trim(),
                             registro: e.nroRegistro || '',
-                            semestre_actual: e["semestre_estimado"] || 1
+                            telefono: e.Persona?.telefono?.toString() || '',
+                            semestre_actual: e["semestre_estimado"] || 1,
                         });
                     }
                 }
             });
-
             const horariosRanking = Object.entries(conteoHorarios)
                 .map(([turno, data]) => ({
                     turno,
@@ -1739,96 +1740,98 @@ export class MateriaService {
                         sigla: mp.materia.siglas_materia,
                         semestre: mp.semestre
                     },
-                    horarios: horariosRanking
+                    horarios: horariosRanking.map(horario => ({
+                        ...horario,
+                        detalle_estudiantes: horario.detalle_estudiantes
+                    }))
                 });
+
+                return resultado;
             }
         }
-
-        return resultado;
     }
-
 
 
 
 
     async registrarDocentesDesdeJson(json: EntradaDocente[]) {
-        for (const entrada of json) {
-            const materia = await this.prisma.materia.findFirst({
-                where: { cod_materia: BigInt(entrada.mat_codigo) }
-            });
-            if (!materia) {
-                console.warn(`Materia con cod_materia ${entrada.mat_codigo} no encontrada`);
-                continue;
-            }
+            for (const entrada of json) {
+                const materia = await this.prisma.materia.findFirst({
+                    where: { cod_materia: BigInt(entrada.mat_codigo) }
+                });
+                if (!materia) {
+                    console.warn(`Materia con cod_materia ${entrada.mat_codigo} no encontrada`);
+                    continue;
+                }
 
-            let persona = await this.prisma.persona.findFirst({
-                where: {
-                    OR: [
-                        { CI: entrada.agd_docnro },
-                        {
+                let persona = await this.prisma.persona.findFirst({
+                    where: {
+                        OR: [
+                            { CI: entrada.agd_docnro },
+                            {
+                                Nombre: entrada.agd_nombres,
+                                Apellido1: entrada.agd_appaterno,
+                                Apellido2: entrada.agd_apmaterno,
+                            }
+                        ]
+                    }
+                });
+
+                if (!persona) {
+                    persona = await this.prisma.persona.create({
+                        data: {
                             Nombre: entrada.agd_nombres,
                             Apellido1: entrada.agd_appaterno,
                             Apellido2: entrada.agd_apmaterno,
+                            CI: entrada.agd_docnro,
                         }
-                    ]
+                    });
                 }
-            });
 
-            if (!persona) {
-                persona = await this.prisma.persona.create({
-                    data: {
-                        Nombre: entrada.agd_nombres,
-                        Apellido1: entrada.agd_appaterno,
-                        Apellido2: entrada.agd_apmaterno,
-                        CI: entrada.agd_docnro,
-                    }
-                });
-            }
-
-            let tribunalDocente = await this.prisma.tribunal_Docente.findFirst({
-                where: {
-                    id_Persona: persona.Id_Persona,
-                    nroAgenda: entrada.agd_docnro,
-                }
-            });
-            if (!tribunalDocente) {
-                tribunalDocente = await this.prisma.tribunal_Docente.create({
-                    data: {
+                let tribunalDocente = await this.prisma.tribunal_Docente.findFirst({
+                    where: {
                         id_Persona: persona.Id_Persona,
                         nroAgenda: entrada.agd_docnro,
-                        estado: true,
                     }
                 });
-            }
-
-            const horarioExistente = await this.prisma.horario_materia.findFirst({
-                where: {
-                    id_docente: tribunalDocente.id_tribunal,
-                    id_materia: materia.id_materia,
-                    grupo: entrada.pln_grupo,
-                    gestion: entrada.semestre,
-                    Modalidad: entrada.mdl_descripcion,
-                    modulo_inicio: parseInt(entrada.mdu_codigo),
+                if (!tribunalDocente) {
+                    tribunalDocente = await this.prisma.tribunal_Docente.create({
+                        data: {
+                            id_Persona: persona.Id_Persona,
+                            nroAgenda: entrada.agd_docnro,
+                            estado: true,
+                        }
+                    });
                 }
-            });
 
-            if (!horarioExistente) {
-                await this.prisma.horario_materia.create({
-                    data: {
-                        id_materia: materia.id_materia,
+                const horarioExistente = await this.prisma.horario_materia.findFirst({
+                    where: {
                         id_docente: tribunalDocente.id_tribunal,
+                        id_materia: materia.id_materia,
                         grupo: entrada.pln_grupo,
                         gestion: entrada.semestre,
                         Modalidad: entrada.mdl_descripcion,
                         modulo_inicio: parseInt(entrada.mdu_codigo),
-                        created_at: new Date(),
-                        updated_at: new Date(),
                     }
                 });
+
+                if (!horarioExistente) {
+                    await this.prisma.horario_materia.create({
+                        data: {
+                            id_materia: materia.id_materia,
+                            id_docente: tribunalDocente.id_tribunal,
+                            grupo: entrada.pln_grupo,
+                            gestion: entrada.semestre,
+                            Modalidad: entrada.mdl_descripcion,
+                            modulo_inicio: parseInt(entrada.mdu_codigo),
+                            created_at: new Date(),
+                            updated_at: new Date(),
+                        }
+                    });
+                }
             }
+            return { ok: true };
         }
-        return { ok: true };
-    }
     private getGestionActual(): string {
         const now = new Date();
         const y = now.getFullYear();

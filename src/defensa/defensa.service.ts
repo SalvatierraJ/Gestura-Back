@@ -606,7 +606,7 @@ export class DefensaService {
                     area: true,
                     casos_de_estudio: true,
                 },
-                orderBy: { fecha_defensa: "desc" }
+                orderBy: { id_defensa: "desc"}
             });
 
             // 6. Formatear resultados (igual que tu código original)
@@ -773,7 +773,7 @@ export class DefensaService {
                     area: true,
                     casos_de_estudio: true,
                 },
-                orderBy: { fecha_defensa: "desc" }
+                orderBy: { id_defensa: "desc"  }
             });
 
             // 4. Formatear los resultados para la respuesta final
@@ -1636,6 +1636,219 @@ table{border-collapse:separate;table-layout:fixed;mso-table-lspace:0pt;mso-table
                 },
             };
         });
+    }
+
+    /**
+     * Envía un mensaje personalizado de WhatsApp a múltiples estudiantes por número de registro
+     * @param registros Array de números de registro de estudiantes
+     * @param mensaje Mensaje personalizado a enviar
+     * @returns Array con resultados del envío para cada estudiante
+     */
+    public async enviarMensajeWhatsAppMasivoPorRegistro(registros: string[], mensaje: string) {
+        const resultados: { 
+            registro: string; 
+            idEstudiante?: number;
+            enviado: boolean; 
+            nombre?: string; 
+            telefono?: string; 
+            error?: string 
+        }[] = [];
+
+        for (const registro of registros) {
+            try {
+                // Buscar estudiante por número de registro
+                const estudiante = await this.prisma.estudiante.findFirst({
+                    where: { nroRegistro: registro },
+                    include: { Persona: true }
+                });
+
+                if (!estudiante) {
+                    resultados.push({
+                        registro,
+                        enviado: false,
+                        error: 'Estudiante no encontrado con este número de registro'
+                    });
+                    continue;
+                }
+
+                if (!estudiante.Persona?.telefono) {
+                    resultados.push({
+                        registro,
+                        idEstudiante: Number(estudiante.id_estudiante),
+                        enviado: false,
+                        nombre: `${estudiante.Persona?.Nombre || ''} ${estudiante.Persona?.Apellido1 || ''}`.trim(),
+                        error: 'Estudiante sin número de teléfono'
+                    });
+                    continue;
+                }
+
+                const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
+                const telefono = String(estudiante.Persona.telefono);
+
+                // Personalizar el mensaje con el nombre del estudiante
+                const mensajePersonalizado = mensaje.replace(/\{nombre\}/g, nombreCompleto);
+
+                // Envío directo a la cola (más confiable que sendMessage)
+                try {
+                    // Usar el método sendMessage que automáticamente encola si falla
+                    const envioExitoso = await this.notificacionService.sendMessage(telefono, mensajePersonalizado);
+                    
+                    if (envioExitoso) {
+                        console.log(`Mensaje personalizado enviado exitosamente a ${nombreCompleto} (${telefono}) - Registro: ${registro}`);
+                        resultados.push({
+                            registro,
+                            idEstudiante: Number(estudiante.id_estudiante),
+                            enviado: true,
+                            nombre: nombreCompleto,
+                            telefono
+                        });
+                    } else {
+                        console.log(`Mensaje encolado para reintento: ${nombreCompleto} (${telefono}) - Registro: ${registro}`);
+                        resultados.push({
+                            registro,
+                            idEstudiante: Number(estudiante.id_estudiante),
+                            enviado: true, // Lo marcamos como enviado porque se encoló
+                            nombre: nombreCompleto,
+                            telefono
+                        });
+                    }
+                } catch (error) {
+                    console.log(`Mensaje encolado por error: ${nombreCompleto} (${telefono}) - Registro: ${registro} - Error: ${error.message}`);
+                    resultados.push({
+                        registro,
+                        idEstudiante: Number(estudiante.id_estudiante),
+                        enviado: true, // Lo marcamos como enviado porque se encoló
+                        nombre: nombreCompleto,
+                        telefono
+                    });
+                }
+
+            } catch (error) {
+                console.error(`Error al enviar mensaje personalizado al estudiante con registro ${registro}:`, error?.message || error);
+                resultados.push({
+                    registro,
+                    enviado: false,
+                    error: error?.message || 'Error desconocido'
+                });
+            }
+        }
+
+        return {
+            total: registros.length,
+            enviados: resultados.filter(r => r.enviado).length,
+            fallidos: resultados.filter(r => !r.enviado).length,
+            resultados
+        };
+    }
+
+    /**
+     * Obtiene el estado actual del servicio de WhatsApp
+     * @returns Estado del servicio de notificaciones
+     */
+    public async getEstadoWhatsApp() {
+        try {
+            const estado = this.notificacionService.getEstado();
+            console.log('Estado de WhatsApp:', estado);
+            return estado;
+        } catch (error) {
+            console.error('Error al obtener estado de WhatsApp:', error);
+            return {
+                error: 'No se pudo obtener el estado de WhatsApp',
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+
+    /**
+     * Envía un mensaje personalizado de WhatsApp a múltiples estudiantes (método original por IDs)
+     * @param estudiantesIds Array de IDs de estudiantes
+     * @param mensaje Mensaje personalizado a enviar
+     * @returns Array con resultados del envío para cada estudiante
+     */
+    public async enviarMensajeWhatsAppMasivo(estudiantesIds: number[], mensaje: string) {
+        const resultados: { 
+            idEstudiante: number; 
+            enviado: boolean; 
+            nombre?: string; 
+            telefono?: string; 
+            error?: string 
+        }[] = [];
+
+        for (const idEstudiante of estudiantesIds) {
+            try {
+                // Obtener datos del estudiante
+                const estudiante = await this.prisma.estudiante.findUnique({
+                    where: { id_estudiante: idEstudiante },
+                    include: { Persona: true }
+                });
+
+                if (!estudiante) {
+                    resultados.push({
+                        idEstudiante,
+                        enviado: false,
+                        error: 'Estudiante no encontrado'
+                    });
+                    continue;
+                }
+
+                if (!estudiante.Persona?.telefono) {
+                    resultados.push({
+                        idEstudiante,
+                        enviado: false,
+                        nombre: `${estudiante.Persona?.Nombre || ''} ${estudiante.Persona?.Apellido1 || ''}`.trim(),
+                        error: 'Estudiante sin número de teléfono'
+                    });
+                    continue;
+                }
+
+                const nombreCompleto = `${estudiante.Persona.Nombre} ${estudiante.Persona.Apellido1} ${estudiante.Persona.Apellido2 || ''}`.trim();
+                const telefono = String(estudiante.Persona.telefono);
+
+                // Personalizar el mensaje con el nombre del estudiante
+                const mensajePersonalizado = mensaje.replace(/\{nombre\}/g, nombreCompleto);
+
+                // Enviar mensaje con timeout
+                const envioExitoso = await Promise.race([
+                    this.notificacionService.sendMessage(telefono, mensajePersonalizado),
+                    new Promise<boolean>((_, reject) =>
+                        setTimeout(() => reject(new Error('Timeout al enviar mensaje')), 30000)
+                    ),
+                ]);
+
+                if (envioExitoso) {
+                    console.log(`Mensaje personalizado enviado exitosamente a ${nombreCompleto} (${telefono})`);
+                    resultados.push({
+                        idEstudiante,
+                        enviado: true,
+                        nombre: nombreCompleto,
+                        telefono
+                    });
+                } else {
+                    resultados.push({
+                        idEstudiante,
+                        enviado: false,
+                        nombre: nombreCompleto,
+                        telefono,
+                        error: 'Error al enviar mensaje'
+                    });
+                }
+
+            } catch (error) {
+                console.error(`Error al enviar mensaje personalizado al estudiante ${idEstudiante}:`, error?.message || error);
+                resultados.push({
+                    idEstudiante,
+                    enviado: false,
+                    error: error?.message || 'Error desconocido'
+                });
+            }
+        }
+
+        return {
+            total: estudiantesIds.length,
+            enviados: resultados.filter(r => r.enviado).length,
+            fallidos: resultados.filter(r => !r.enviado).length,
+            resultados
+        };
     }
 
 

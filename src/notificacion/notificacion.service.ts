@@ -55,6 +55,13 @@ export class NotificacionService {
             return this.initializationPromise;
         }
 
+        // Si está inicializado pero no listo, forzar reinicio
+        if (this.initialized && !this.ready) {
+            this.logger.log('Cliente inicializado pero no listo, forzando reinicio...');
+            await this.forceRestart();
+            return;
+        }
+
         this.currentState = WhatsAppSessionState.CONNECTING;
 
         this.initializationPromise = new Promise<void>((resolve, reject) => {
@@ -73,11 +80,45 @@ export class NotificacionService {
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
                         '--disable-dev-shm-usage',
-                        '--disable-accelerated-2d-canvas',
+                        '--disable-gpu',
                         '--no-first-run',
-                        '--no-zygote',
-                        '--disable-gpu'
-                    ]
+                        '--disable-extensions',
+                        '--disable-plugins',
+                        '--disable-images',
+                        '--disable-sync',
+                        '--disable-translate',
+                        '--hide-scrollbars',
+                        '--mute-audio',
+                        '--no-default-browser-check',
+                        '--disable-background-timer-throttling',
+                        '--disable-backgrounding-occluded-windows',
+                        '--disable-renderer-backgrounding',
+                        '--disable-background-networking',
+                        '--disable-client-side-phishing-detection',
+                        '--disable-component-extensions-with-background-pages',
+                        '--disable-domain-reliability',
+                        '--disable-features=TranslateUI',
+                        '--disable-ipc-flooding-protection',
+                        '--disable-hang-monitor',
+                        '--disable-prompt-on-repost',
+                        '--disable-sync-preferences',
+                        '--disable-web-resources',
+                        '--disable-logging',
+                        '--disable-permissions-api',
+                        '--disable-presentation-api',
+                        '--disable-print-preview',
+                        '--disable-speech-api',
+                        '--disable-file-system',
+                        '--disable-notifications',
+                        '--disable-geolocation',
+                        '--disable-media-session-api',
+                        '--disable-device-discovery-notifications',
+                        '--disable-background-downloads',
+                        '--disable-add-to-shelf',
+                        '--memory-pressure-off',
+                        '--max_old_space_size=2048'
+                    ],
+                    timeout: 120000
                 }
             });
 
@@ -126,6 +167,17 @@ export class NotificacionService {
                 } catch (error) {
                     this.logger.error('❌ Error al sincronizar sesión:', error);
                 }
+
+                // Timeout para forzar el estado ready si no se dispara automáticamente
+                setTimeout(() => {
+                    if (this.currentState === WhatsAppSessionState.AUTHENTICATED && !this.ready) {
+                        this.logger.log('⏰ Timeout: Forzando estado ready después de autenticación');
+                        this.currentState = WhatsAppSessionState.READY;
+                        this.ready = true;
+                        this.logger.log('🎉 ¡Cliente marcado como listo por timeout!');
+                        resolve();
+                    }
+                }, 15000); // 15 segundos después de autenticación
             });
 
             this.client.on('auth_failure', (msg) => {
@@ -141,6 +193,22 @@ export class NotificacionService {
                 this.initialized = false;
                 this.currentQRCode = null;
                 this.currentQRImage = null;
+            });
+
+            // Eventos adicionales para mejor detección del estado
+            this.client.on('loading_screen', (percent, message) => {
+                this.logger.log(`📱 Cargando WhatsApp Web: ${percent}% - ${message}`);
+            });
+
+            this.client.on('change_state', (state) => {
+                this.logger.log(`🔄 Cambio de estado interno: ${state}`);
+                if (state === 'CONNECTED') {
+                    this.logger.log('🔗 WhatsApp Web conectado, esperando ready...');
+                }
+            });
+
+            this.client.on('remote_session_saved', () => {
+                this.logger.log('💾 Sesión remota guardada');
             });
 
             this.client.on('message', (message) => {
@@ -229,19 +297,72 @@ export class NotificacionService {
 
     async sendMessage(number: string, text: string) {
         try {
-            // Asegurar que el cliente esté inicializado y listo
+            // Verificar estado actual
+            this.logger.log(`Estado actual: initialized=${this.initialized}, ready=${this.ready}, state=${this.currentState}`);
+            
+            // Si no está inicializado o no está listo, inicializar
             if (!this.initialized || !this.ready) {
                 this.logger.log('Cliente no está listo, inicializando...');
                 await this.initialize();
+                
+                // Esperar un poco más para que se estabilice
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
-            // Verificar que el cliente esté realmente listo
+            // Verificar que el cliente esté realmente listo después de la inicialización
             if (!this.ready || !this.client) {
+                this.logger.error(`Cliente no disponible después de inicialización: ready=${this.ready}, client=${!!this.client}`);
                 throw new Error('Cliente de WhatsApp no está disponible');
+            }
+
+            // Verificar conexión y reconectar si es necesario
+            if (this.client && typeof this.client.getState === 'function') {
+                const state = await this.client.getState();
+                if (state !== 'CONNECTED') {
+                    this.logger.warn(`Cliente no está conectado (estado: ${state}), reiniciando...`);
+                    await this.forceRestart();
+                    // Esperar un poco para que se estabilice tras reinicio
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
             }
 
             const chatId = `591${number}@c.us`;
             this.logger.log(`Enviando mensaje a ${number}...`);
+
+            // Verificar que la conexión esté activa antes de enviar
+            try {
+                if (!this.client) {
+                    throw new Error('Cliente de WhatsApp es null');
+                }
+                
+                const state = await this.client.getState();
+                this.logger.log(`Estado de WhatsApp Web: ${state}`);
+                
+                if (state !== 'CONNECTED') {
+                    throw new Error(`WhatsApp Web no está conectado. Estado: ${state}`);
+                }
+                
+                // Verificar que el cliente tenga acceso a las funciones internas
+                try {
+                    await this.client.getChats();
+                    this.logger.log('✅ Cliente tiene acceso a getChats()');
+                } catch (chatError) {
+                    this.logger.error(`❌ Error al acceder a getChats(): ${chatError.message}`);
+                    
+                    // Si es el error de sesión corrupta, activar limpieza
+                    if (chatError.message && chatError.message.includes('Cannot read properties of undefined')) {
+                        this.logger.warn('🔄 Detectado error de sesión corrupta en getChats, activando limpieza...');
+                        this.limpiarSesionCorrupta().catch(error => {
+                            this.logger.error('Error al limpiar sesión corrupta:', error);
+                        });
+                    }
+                    
+                    throw new Error('Cliente no tiene acceso a funciones de WhatsApp');
+                }
+            } catch (error) {
+                this.logger.error(`Error al verificar estado de WhatsApp: ${error.message}`);
+                throw new Error('WhatsApp Web no está conectado');
+            }
 
             // Añadir un pequeño delay para asegurar que el cliente esté completamente listo
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -251,6 +372,19 @@ export class NotificacionService {
             return true;
         } catch (err) {
             this.logger.error(`Error al enviar el mensaje a ${number}, lo encolamos:`, err);
+            
+            // Si es el error específico de sesión corrupta, limpiar completamente
+            if (err.message && err.message.includes('Cannot read properties of undefined')) {
+                this.logger.warn('🔄 Detectado error de sesión corrupta, limpiando completamente...');
+                
+                // Limpiar sesión corrupta en background
+                this.limpiarSesionCorrupta().then(() => {
+                    this.logger.log('✅ Sesión corrupta limpiada, listo para próxima inicialización');
+                }).catch(error => {
+                    this.logger.error('Error al limpiar sesión corrupta:', error);
+                });
+            }
+            
             await this.whatsappQueue.add('retry-whatsapp', { number, text }, {
                 attempts: 9999,
                 backoff: 60000,
@@ -432,6 +566,158 @@ export class NotificacionService {
         } catch (error) {
             this.logger.error(`❌ Error al enviar email con plantilla a ${to}:`, error);
             return false;
+        }
+    }
+
+    /**
+     * Obtiene el estado actual del servicio de WhatsApp
+     * @returns Estado del servicio
+     */
+    public getEstado() {
+        return {
+            inicializado: this.initialized,
+            listo: this.ready,
+            estadoActual: this.currentState,
+            qrCodeDisponible: !!this.currentQRCode,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    /**
+     * Fuerza la reconexión del cliente de WhatsApp
+     * @returns Resultado de la reconexión
+     */
+    public async forzarReconexion() {
+        try {
+            this.logger.log('🔄 Forzando reconexión de WhatsApp...');
+            
+            // Resetear estados
+            this.ready = false;
+            this.initialized = false;
+            this.currentState = WhatsAppSessionState.DISCONNECTED;
+            this.initializationPromise = null;
+
+            // Cerrar cliente actual si existe
+            if (this.client) {
+                try {
+                    await this.client.destroy();
+                    this.logger.log('🔌 Cliente anterior cerrado');
+                } catch (error) {
+                    this.logger.warn('⚠️ Error al cerrar cliente anterior:', error);
+                }
+                this.client = null;
+            }
+
+            // Reinicializar
+            await this.initialize();
+            
+            return {
+                success: true,
+                message: 'Reconexión iniciada',
+                timestamp: new Date().toISOString()
+            };
+        } catch (error) {
+            this.logger.error('Error al forzar reconexión:', error);
+            return {
+                success: false,
+                error: error?.message || 'Error desconocido',
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+
+    /**
+     * Verifica la conexión de WhatsApp y reconecta si es necesario
+     */
+    private async verificarYReconectar(): Promise<void> {
+        try {
+            if (!this.client) {
+                throw new Error('Cliente no disponible');
+            }
+
+            const state = await this.client.getState();
+            this.logger.log(`Estado de WhatsApp Web: ${state}`);
+
+            if (state !== 'CONNECTED') {
+                this.logger.warn(`WhatsApp Web no está conectado (${state}), intentando reconectar...`);
+                
+                // Marcar como no listo
+                this.ready = false;
+                this.initialized = false;
+                
+                // Reiniciar
+                await this.forceRestart();
+                
+                // Esperar a que se reconecte
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                
+                // Verificar nuevamente
+                const newState = await this.client.getState();
+                if (newState !== 'CONNECTED') {
+                    throw new Error(`No se pudo reconectar. Estado: ${newState}`);
+                }
+                
+                this.logger.log('✅ Reconexión exitosa');
+            }
+        } catch (error) {
+            this.logger.error(`Error al verificar conexión: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Limpia completamente la sesión corrupta y reinicia
+     */
+    private async limpiarSesionCorrupta(): Promise<void> {
+        try {
+            this.logger.log('🧹 Limpiando sesión corrupta...');
+            
+            // Cerrar cliente actual
+            if (this.client) {
+                try {
+                    await this.client.destroy();
+                } catch (error) {
+                    this.logger.warn('Error al cerrar cliente corrupto:', error);
+                }
+                this.client = null;
+            }
+            
+            // Resetear estados
+            this.ready = false;
+            this.initialized = false;
+            this.currentState = WhatsAppSessionState.DISCONNECTED;
+            this.initializationPromise = null;
+            this.currentQRCode = null;
+            this.currentQRImage = null;
+            
+            // Limpiar archivos de sesión
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                
+                const authPath = './.wwebjs_auth';
+                const cachePath = './.wwebjs_cache';
+                
+                if (fs.existsSync(authPath)) {
+                    fs.rmSync(authPath, { recursive: true, force: true });
+                    this.logger.log('🗑️ Archivos de autenticación eliminados');
+                }
+                
+                if (fs.existsSync(cachePath)) {
+                    fs.rmSync(cachePath, { recursive: true, force: true });
+                    this.logger.log('🗑️ Archivos de caché eliminados');
+                }
+            } catch (error) {
+                this.logger.warn('Error al limpiar archivos de sesión:', error);
+            }
+            
+            // Esperar un poco antes de reinicializar
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            this.logger.log('✅ Sesión corrupta limpiada, listo para reinicializar');
+        } catch (error) {
+            this.logger.error('Error al limpiar sesión corrupta:', error);
+            throw error;
         }
     }
 
