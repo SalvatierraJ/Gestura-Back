@@ -125,7 +125,10 @@ export class DefensaService {
 
                 const estudiante = await tx.estudiante.findUnique({
                     where: { id_estudiante: idEstudiante },
-                    include: { estudiante_Carrera: { include: { carrera: true } } }
+                    include: { 
+                        estudiante_Carrera: { include: { carrera: true } },
+                        Persona: true 
+                    }
                 });
                 if (!estudiante) throw new HttpException("Estudiante no encontrado", 400);
                 if (!estudiante.estudiante_Carrera?.length) throw new Error("Estudiante sin carrera");
@@ -209,6 +212,7 @@ export class DefensaService {
 
                                 defensasCreadas.push({
                                     id_defensa: updated.id_defensa,
+                                    nombreCompleto: estudiante.Persona?.Nombre + ' ' + estudiante.Persona?.Apellido1 + ' ' + estudiante.Persona?.Apellido2 || null,
                                     estudiante: idEstudiante,
                                     area: areaNombre,
                                     caso: casoNombre,
@@ -275,6 +279,7 @@ export class DefensaService {
 
                         defensasCreadas.push({
                             id_defensa: updated.id_defensa,
+                            nombreCompleto: estudiante.Persona?.Nombre + ' ' + estudiante.Persona?.Apellido1 + ' ' + estudiante.Persona?.Apellido2 || null,
                             estudiante: idEstudiante,
                             area: areaNombre,
                             caso: casoNombre,
@@ -330,6 +335,7 @@ export class DefensaService {
 
                         defensasCreadas.push({
                             id_defensa: updated.id_defensa,
+                            nombreCompleto: estudiante.Persona?.Nombre + ' ' + estudiante.Persona?.Apellido1 + ' ' + estudiante.Persona?.Apellido2 || null,
                             estudiante: idEstudiante,
                             area: areaNombre,
                             caso: casoNombre,
@@ -487,6 +493,7 @@ export class DefensaService {
 
                 defensasCreadas.push({
                     id_defensa: defensa.id_defensa,
+                    nombreCompleto: estudiante.Persona?.Nombre + ' ' + estudiante.Persona?.Apellido1 + ' ' + estudiante.Persona?.Apellido2 || null,
                     estudiante: idEstudiante,
                     area: areaNombreSel,
                     caso: casoNombreSel,
