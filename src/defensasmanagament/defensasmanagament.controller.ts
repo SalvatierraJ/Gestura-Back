@@ -1,4 +1,4 @@
- import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { DefensaService } from 'src/defensa/defensa.service';
 import { JuradosService } from 'src/jurados/jurados.service';
@@ -83,33 +83,57 @@ export class DefensasmanagamentController {
     }
 
 
-       /**
-     * Endpoint para ENVIAR por correo la notificación de la última defensa de uno o varios estudiantes.
-     * POST /defensasmanagament/enviar-notificacion-email-ultima-defensa
-     * Body: { estudiantes: number[] | number }
-     */
+    /**
+  * Endpoint para ENVIAR por correo la notificación de la última defensa de uno o varios estudiantes.
+  * POST /defensasmanagament/enviar-notificacion-email-ultima-defensa
+  * curl -i -X POST 'http://localhost:3000/defensasmanagament/enviar-notificacion-email-ultima-defensa' \
+    -H 'Content-Type: application/json' \
+    -d '{"estudiantes": 1449}'
+  * Body: { estudiantes: number[] | number }
+  */
     @Post('/enviar-notificacion-email-ultima-defensa')
-    async enviarNotificacionEmailUltimaDefensa(@Body() body: { estudiantes: number[] | number }) {
+    async enviarNotificacionEmailUltimaDefensa(@Body() body: { estudiantes?: number[] | number }) {
+        // Validar que el body y la propiedad estudiantes existan
+        if (!body || body.estudiantes === undefined || body.estudiantes === null) {
+            // Usamos BadRequestException para respuestas HTTP 400
+            const { BadRequestException } = await import('@nestjs/common');
+            throw new BadRequestException('Debe enviar en el body la propiedad "estudiantes" como number o number[]');
+        }
+
         const estudiantesIds = Array.isArray(body.estudiantes) ? body.estudiantes : [body.estudiantes];
-        const resultados: { idEstudiante: number; enviado: boolean; datos?: any; error?: string }[] = [];
-        for (const idEstudiante of estudiantesIds) {
-            // Reutiliza el método de preview para obtener la defensa
-            const preview = await this.defensaService.previewNotificacionEmailUltimaDefensa(idEstudiante);
-            const info = Array.isArray(preview) ? preview[0] : preview;
-            if (info && !info.error) {
-                const datos = {
-                    area: info.area,
-                    caso: info.caso,
-                    fecha: info.fecha,
-                    tipo_defensa: info.tipo_defensa,
-                    estado: info.estado
-                };
-                await this.defensaService.enviarNotificacionEmailDefensa(Number(idEstudiante), datos);
-                resultados.push({ idEstudiante, enviado: true, datos });
-            } else {
-                resultados.push({ idEstudiante, enviado: false, error: info?.error || 'No se encontró defensa' });
+        const resultados: { idEstudiante: number | any; enviado: boolean; datos?: any; error?: string }[] = [];
+
+        for (const rawId of estudiantesIds) {
+            // validar que cada id sea un número válido
+            const idEstudiante = Number(rawId);
+            if (!Number.isFinite(idEstudiante) || Number.isNaN(idEstudiante)) {
+                resultados.push({ idEstudiante: rawId, enviado: false, error: 'id de estudiante inválido' });
+                continue;
+            }
+
+            try {
+                // Reutiliza el método de preview para obtener la defensa
+                const preview = await this.defensaService.previewNotificacionEmailUltimaDefensa(idEstudiante);
+                const info = Array.isArray(preview) ? preview[0] : preview;
+                if (info && !info.error) {
+                    const datos = {
+                        area: info.area,
+                        caso: info.caso,
+                        fecha: info.fecha,
+                        tipo_defensa: info.tipo_defensa,
+                        estado: info.estado
+                    };
+                    await this.defensaService.enviarNotificacionEmailDefensa(idEstudiante, datos);
+                    resultados.push({ idEstudiante, enviado: true, datos });
+                } else {
+                    resultados.push({ idEstudiante, enviado: false, error: info?.error || 'No se encontró defensa' });
+                }
+            } catch (err: any) {
+                // Capturamos errores por estudiante para no fallar todo el batch
+                resultados.push({ idEstudiante, enviado: false, error: err?.message || 'Error al procesar estudiante' });
             }
         }
+
         return resultados;
     }
 
@@ -126,7 +150,7 @@ export class DefensasmanagamentController {
         if (!body.mensaje || body.mensaje.trim() === '') {
             throw new Error('Debe proporcionar un mensaje personalizado');
         }
-        
+
         return this.defensaService.enviarMensajeWhatsAppMasivoPorRegistro(body.registros, body.mensaje);
     }
 
