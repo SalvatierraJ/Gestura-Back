@@ -1745,10 +1745,12 @@ export class MateriaService {
                         detalle_estudiantes: horario.detalle_estudiantes
                     }))
                 });
-
-                return resultado;
             }
         }
+
+        // Devolver todas las materias procesadas (antes se retornaba dentro del bucle y solo
+        // se devolvía la primera materia).
+        return resultado;
     }
 
 
