@@ -44,6 +44,49 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
+## API Documentation (Swagger)
+
+La aplicación incluye documentación interactiva de la API usando Swagger/OpenAPI.
+
+### Acceder a la documentación
+
+Una vez que la aplicación esté ejecutándose, puedes acceder a la documentación de Swagger en:
+
+```
+http://localhost:3000/api
+```
+
+### Características
+
+- **Documentación interactiva**: Prueba los endpoints directamente desde el navegador
+- **Autenticación JWT**: Usa el botón "Authorize" para autenticarte y probar endpoints protegidos
+- **Ejemplos de requests y responses**: Cada endpoint incluye ejemplos de cómo usar la API
+- **Descripciones detalladas**: Información sobre parámetros, tipos de datos y códigos de respuesta
+
+### Endpoints documentados
+
+La documentación incluye todos los controladores de la aplicación:
+
+- **auth** - Autenticación, registro, login, perfiles
+- **control-acceso** - Gestión de roles, permisos y módulos
+- **docentes** - Gestión de docentes del tribunal
+- **estudiantes** - Gestión de estudiantes
+- **defensas** - Gestión de defensas, jurados, notificaciones
+- **plantillas** - Gestión de plantillas de documentos
+- **casos-estudio** - Gestión de carreras, áreas y casos de estudio
+- **registro-materia** - Registro de materias, inscripciones, pensum
+- **modulo-periodo** - Períodos académicos
+- **whatsapp-admin** - Administración de WhatsApp
+
+### Autenticación en Swagger
+
+Para probar endpoints protegidos:
+
+1. Haz clic en el botón **"Authorize"** en la parte superior de la página
+2. Ingresa tu token JWT (obtenido del endpoint `/auth/login`)
+3. Haz clic en **"Authorize"** y luego en **"Close"**
+4. Ahora puedes probar los endpoints protegidos directamente desde Swagger
+
 ## Run tests
 
 ```bash

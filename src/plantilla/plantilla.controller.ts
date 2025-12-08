@@ -6,16 +6,45 @@ import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { multerConfig } from './multer.config';
 import { Response as ExpressResponse } from 'express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiBearerAuth, ApiConsumes, ApiQuery } from '@nestjs/swagger';
+
+@ApiTags('plantillas')
 @Controller('plantilla-service')
 export class PlantillaController{ 
     constructor(
         private plantillaservice: PlantillaService,
         @InjectQueue('fileQueue') private fileQueue: Queue
     ) {}
-    //Subida de plantilla
     @Post('plantilla')
     @UseInterceptors(FilesInterceptor('files', 10, multerConfig))
-     @UseGuards(JwtAuthGuard)
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('JWT-auth')
+    @ApiConsumes('multipart/form-data')
+    @ApiOperation({ 
+        summary: 'Subir plantilla de documento', 
+        description: 'Sube una o varias plantillas de documentos (Word, Excel) al sistema. Las plantillas se procesan en cola y se asocian a un módulo específico. Máximo 10 archivos por petición.' 
+    })
+    @ApiBody({ 
+        description: 'Archivos de plantilla y módulo asociado',
+        schema: {
+            type: 'object',
+            properties: {
+                files: {
+                    type: 'array',
+                    items: { type: 'string', format: 'binary' },
+                    description: 'Archivos de plantilla (Word .docx o Excel .xlsx)'
+                },
+                id_modulo: {
+                    type: 'string',
+                    description: 'ID del módulo al que pertenece la plantilla',
+                    example: '1'
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 201, description: 'Plantilla(s) subida(s) exitosamente' })
+    @ApiResponse({ status: 400, description: 'No se recibieron archivos o faltan datos requeridos' })
+    @ApiResponse({ status: 401, description: 'No autorizado' })
     async subirPlantilla(
         @UploadedFiles() files: Express.Multer.File[],
         @Request() req,
@@ -59,6 +88,13 @@ export class PlantillaController{
     }
 
     @Get('usuario/:id_usuario')
+    @ApiOperation({ 
+        summary: 'Obtener plantillas por usuario', 
+        description: 'Obtiene todas las plantillas asociadas a un usuario específico' 
+    })
+    @ApiParam({ name: 'id_usuario', description: 'ID del usuario', type: String, example: '1' })
+    @ApiResponse({ status: 200, description: 'Lista de plantillas obtenida exitosamente' })
+    @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
     async getPlantillasByUsuario(@Param('id_usuario') id_usuario: string): Promise<any> {
         try {
             const userIdBigInt = BigInt(id_usuario);
@@ -78,6 +114,13 @@ export class PlantillaController{
     }
 
     @Get('modulo/:id_modulo')
+    @ApiOperation({ 
+        summary: 'Obtener plantillas por módulo', 
+        description: 'Obtiene todas las plantillas asociadas a un módulo específico' 
+    })
+    @ApiParam({ name: 'id_modulo', description: 'ID del módulo', type: String, example: '1' })
+    @ApiResponse({ status: 200, description: 'Lista de plantillas obtenida exitosamente' })
+    @ApiResponse({ status: 404, description: 'Módulo no encontrado' })
     async getPlantillasByModulo(@Param('id_modulo') id_modulo: string): Promise<any> {
         try {
             const moduleIdBigInt = BigInt(id_modulo);
@@ -97,6 +140,22 @@ export class PlantillaController{
     }
 
     @Delete(':id_plantilla')
+    @ApiOperation({ 
+        summary: 'Eliminar plantilla', 
+        description: 'Elimina una plantilla del sistema. Requiere el ID de la plantilla y el ID del usuario que la creó.' 
+    })
+    @ApiParam({ name: 'id_plantilla', description: 'ID de la plantilla a eliminar', type: String, example: '1' })
+    @ApiBody({ 
+        description: 'ID del usuario propietario',
+        schema: {
+            type: 'object',
+            properties: {
+                id_usuario: { type: 'string', example: '1' }
+            }
+        }
+    })
+    @ApiResponse({ status: 200, description: 'Plantilla eliminada exitosamente' })
+    @ApiResponse({ status: 404, description: 'Plantilla no encontrada' })
     async deletePlantilla(
         @Param('id_plantilla') id_plantilla: string,
         @Body('id_usuario') id_usuario: string
@@ -119,8 +178,31 @@ export class PlantillaController{
             };
         }
     }
-@UseInterceptors(FilesInterceptor(''))
+    @UseInterceptors(FilesInterceptor(''))
     @Post("/plantillas/user/:id_plantilla")
+    @ApiOperation({ 
+        summary: 'Generar documento desde plantilla', 
+        description: 'Genera un documento (Word o Excel) a partir de una plantilla reemplazando los marcadores con datos del estudiante. El documento se descarga directamente.' 
+    })
+    @ApiParam({ name: 'id_plantilla', description: 'ID de la plantilla a usar', type: String, example: '1' })
+    @ApiBody({ 
+        description: 'Datos del estudiante para reemplazar en la plantilla',
+        examples: {
+            ejemplo1: {
+                value: {
+                    idEstudiante: 1,
+                    nombre: 'Juan',
+                    apellido: 'Pérez',
+                    registro: '2021001234',
+                    carrera: 'Ingeniería de Sistemas'
+                },
+                summary: 'Ejemplo de datos para generar documento'
+            }
+        }
+    })
+    @ApiResponse({ status: 200, description: 'Documento generado exitosamente (descarga directa)' })
+    @ApiResponse({ status: 400, description: 'Error al generar el documento' })
+    @ApiResponse({ status: 404, description: 'Plantilla no encontrada' })
     async plantillaUsuario(
         @Param('id_plantilla') id_plantilla: string,
         @Response() res: ExpressResponse,
@@ -156,8 +238,15 @@ export class PlantillaController{
         }
     }
 
-    // Endpoint para extraer marcadores de una plantilla (útil para debugging)
     @Get("/plantillas/marcadores/:nombre_archivo")
+    @ApiOperation({ 
+        summary: 'Extraer marcadores de una plantilla', 
+        description: 'Extrae todos los marcadores (variables) que contiene una plantilla. Útil para debugging y verificar qué datos se necesitan para generar el documento.' 
+    })
+    @ApiParam({ name: 'nombre_archivo', description: 'Nombre del archivo de la plantilla', type: String, example: 'plantilla.docx' })
+    @ApiResponse({ status: 200, description: 'Marcadores extraídos exitosamente', 
+        example: { success: true, marcadores: ['{nombre}', '{apellido}', '{registro}'], total: 3 }
+    })
     async obtenerMarcadores(@Param('nombre_archivo') nombre_archivo: string) {
         try {
             const marcadores = await this.plantillaservice.extraerMarcadores(nombre_archivo);
@@ -178,8 +267,12 @@ export class PlantillaController{
             };
         }
     }
-    //Endpoint para obtener todas las plantillas
     @Get("/plantillas")
+    @ApiOperation({ 
+        summary: 'Obtener todas las plantillas', 
+        description: 'Obtiene la lista completa de todas las plantillas disponibles en el sistema' 
+    })
+    @ApiResponse({ status: 200, description: 'Lista de plantillas obtenida exitosamente' })
     async obtenerPlantillas() { 
        try { 
             return  await this.plantillaservice.getPlantillasAll();
@@ -188,13 +281,26 @@ export class PlantillaController{
         return {'error': error}
        } 
     }
-    //Obtener areas de una carrera
     @Get("/plantillas/areas/:idEstudiante")
+    @ApiOperation({ 
+        summary: 'Obtener áreas de estudio de un estudiante', 
+        description: 'Obtiene las áreas de estudio asociadas a la carrera de un estudiante específico' 
+    })
+    @ApiParam({ name: 'idEstudiante', description: 'ID del estudiante', type: String, example: '1' })
+    @ApiResponse({ status: 200, description: 'Áreas de estudio obtenidas exitosamente' })
+    @ApiResponse({ status: 404, description: 'Estudiante no encontrado' })
     async obtenerAreas(@Param('idEstudiante') id_estudiante) {
         return await this.plantillaservice.getAreasEstudio(Number(id_estudiante))
     }
-    //Obtener informacion del estudiante
     @Get("/plantillas/estudiante/:idEstudiante") 
+    @ApiOperation({ 
+        summary: 'Obtener información completa de un estudiante', 
+        description: 'Obtiene toda la información disponible de un estudiante. Útil para pre-llenar formularios o generar documentos con datos del estudiante.' 
+    })
+    @ApiParam({ name: 'idEstudiante', description: 'ID del estudiante', type: String, example: '1' })
+    @ApiResponse({ status: 200, description: 'Información del estudiante obtenida exitosamente' })
+    @ApiResponse({ status: 400, description: 'El parámetro debe ser un número' })
+    @ApiResponse({ status: 404, description: 'Estudiante no encontrado' })
     async obtenerInformacionEstudiante(@Param("idEstudiante") id_estudiante ) { 
         console.log(id_estudiante);
         if (Number.isInteger(id_estudiante)) { 
