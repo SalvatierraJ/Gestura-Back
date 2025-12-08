@@ -251,6 +251,14 @@ export class RegistroMateriaController {
     }
 
     @Get('/recomendar-horarios')
+    @ApiOperation({ 
+        summary: 'Recomendar horarios de materias faltantes', 
+        description: 'Recomienda horarios de materias faltantes para estudiantes de una carrera y pensum específicos. Agrupa por turno preferido y calcula grupos sugeridos.' 
+    })
+    @ApiQuery({ name: 'carrera', required: true, type: String, description: 'Nombre de la carrera', example: 'Ingeniería de Sistemas' })
+    @ApiQuery({ name: 'pensum', required: true, type: Number, description: 'Número del pensum', example: 1 })
+    @ApiResponse({ status: 200, description: 'Recomendaciones de horarios obtenidas exitosamente' })
+    @ApiResponse({ status: 400, description: 'Faltan parámetros carrera o pensum' })
     async recomendarHorarios(
         @Query('carrera') carrera: string,
         @Query('pensum') pensum: number,
@@ -266,6 +274,84 @@ export class RegistroMateriaController {
         return {
             materias,
         };
+    }
+
+    @Get('/planificacion-academica-avanzada')
+    @ApiOperation({ 
+        summary: 'Planificación académica avanzada con asignación de módulos', 
+        description: `Genera una planificación académica completa aplicando 7 pasos:
+1. Identifica TODAS las materias pendientes (pendientes + reprobadas si cumplen prerrequisitos)
+2. Filtra solo las que realmente puede cursar (verifica prerrequisitos)
+3. Aplica límites del semestre (6 módulos base + 2 extra = máximo 8 módulos equivalentes)
+4. Ordena por prioridad académica (cuellos de botella, core, paralelas, electivas)
+5. Asigna módulos maximizando avance (distribuye en todos los módulos posibles)
+6. Resuelve conflictos de horarios
+7. Valida capacidad del sistema y calcula grupos necesarios` 
+    })
+    @ApiQuery({ name: 'carrera', required: true, type: String, description: 'Nombre de la carrera', example: 'Ingeniería de Sistemas' })
+    @ApiQuery({ name: 'pensum', required: true, type: Number, description: 'Número del pensum', example: 1 })
+    @ApiQuery({ name: 'gestion', required: true, type: String, description: 'Gestión académica (formato: YYYY-S, ej: 2026-1)', example: '2026-1' })
+    @ApiQuery({ name: 'modulos_base', required: false, type: Number, description: 'Número de módulos base del semestre (default: 6)', example: 6 })
+    @ApiQuery({ name: 'modulos_maximos', required: false, type: Number, description: 'Número máximo de módulos equivalentes permitidos (default: 8)', example: 8 })
+    @ApiResponse({ 
+        status: 200, 
+        description: 'Planificación académica generada exitosamente',
+        example: {
+            gestion: '2026-1',
+            carrera: 'Ingeniería de Sistemas',
+            pensum: 1,
+            total_estudiantes: 150,
+            resumen_demanda: [
+                {
+                    id_materia: 1,
+                    nombre: 'Programación I',
+                    sigla: 'INF-101',
+                    total_estudiantes: 45,
+                    demanda_por_modulo: { 1: 20, 2: 25 },
+                    grupos_necesarios: { 1: 1, 2: 1 }
+                }
+            ],
+            planificaciones_estudiantes: [
+                {
+                    id_estudiante: 1,
+                    registro: '2021001234',
+                    nombre: 'Juan Pérez',
+                    materias_habilitadas: 5,
+                    carga_total_modulos: 7,
+                    modulo_asignaciones: [
+                        { modulo: 1, materias: [{ id: 1, nombre: 'Programación I', sigla: 'INF-101', creditos: 3, prioridad: 1 }] }
+                    ]
+                }
+            ]
+        }
+    })
+    @ApiResponse({ status: 400, description: 'Faltan parámetros requeridos o datos inválidos' })
+    @ApiResponse({ status: 404, description: 'Carrera no encontrada' })
+    async planificacionAcademicaAvanzada(
+        @Query('carrera') carrera: string,
+        @Query('pensum') pensum: number,
+        @Query('gestion') gestion: string,
+        @Query('modulos_base') modulosBase?: number,
+        @Query('modulos_maximos') modulosMaximos?: number,
+    ) {
+        if (!carrera || !pensum || !gestion) {
+            throw new BadRequestException('Faltan parámetros requeridos: carrera, pensum y gestion');
+        }
+
+        // Validar formato de gestión
+        if (!/^\d{4}-[12]$/.test(gestion)) {
+            throw new BadRequestException('Formato de gestión inválido. Debe ser YYYY-S (ej: 2026-1)');
+        }
+
+        const resultado = await this.materiaService.planificacionAcademicaAvanzada(
+            carrera,
+            Number(pensum),
+            gestion,
+            modulosBase ? Number(modulosBase) : 6,
+            modulosMaximos ? Number(modulosMaximos) : 8
+        );
+
+        return resultado;
     }
 
     @Post('/registrar-docente/json')
