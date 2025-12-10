@@ -278,21 +278,27 @@ export class RegistroMateriaController {
 
     @Get('/planificacion-academica-avanzada')
     @ApiOperation({ 
-        summary: 'Planificación académica avanzada con asignación de módulos', 
-        description: `Genera una planificación académica completa aplicando 7 pasos:
-1. Identifica TODAS las materias pendientes (pendientes + reprobadas si cumplen prerrequisitos)
-2. Filtra solo las que realmente puede cursar (verifica prerrequisitos)
-3. Aplica límites del semestre (6 módulos base + 2 extra = máximo 8 módulos equivalentes)
-4. Ordena por prioridad académica (cuellos de botella, core, paralelas, electivas)
-5. Asigna módulos maximizando avance (distribuye en todos los módulos posibles)
-6. Resuelve conflictos de horarios
-7. Valida capacidad del sistema y calcula grupos necesarios` 
+        summary: 'Planificación académica avanzada con preferencias de horario', 
+        description: `Genera una planificación académica completa aplicando los siguientes pasos:
+1. Filtra SOLO estudiantes con estado REGULAR (se excluyen estudiantes con otros estados)
+2. Identifica TODAS las materias pendientes (pendientes + reprobadas si cumplen prerrequisitos)
+3. Filtra solo las que realmente puede cursar (verifica prerrequisitos específicos y cantidad total de materias)
+4. Ordena por prioridad académica (cuellos de botella, core del semestre, paralelas, electivas)
+5. Aplica límites de carga (opcional): si aplicar_limite=true, limita a modulos_maximos; si false, muestra TODAS las materias habilitadas
+6. Agrupa estudiantes por materia y horario preferido (basado en historial académico)
+7. Calcula grupos necesarios por horario (30 estudiantes por grupo)
+
+IMPORTANTE: 
+- Solo se consideran estudiantes con estado REGULAR. Estudiantes con otros estados (egresado, suspendido, etc.) son excluidos.
+- NO se asigna materias a módulos específicos, se agrupan directamente por horario preferido.
+- Si aplicar_limite=false, se muestran TODAS las materias que el estudiante puede cursar cumpliendo prerrequisitos, sin importar la carga académica.` 
     })
     @ApiQuery({ name: 'carrera', required: true, type: String, description: 'Nombre de la carrera', example: 'Ingeniería de Sistemas' })
     @ApiQuery({ name: 'pensum', required: true, type: Number, description: 'Número del pensum', example: 1 })
     @ApiQuery({ name: 'gestion', required: true, type: String, description: 'Gestión académica (formato: YYYY-S, ej: 2026-1)', example: '2026-1' })
-    @ApiQuery({ name: 'modulos_base', required: false, type: Number, description: 'Número de módulos base del semestre (default: 6)', example: 6 })
-    @ApiQuery({ name: 'modulos_maximos', required: false, type: Number, description: 'Número máximo de módulos equivalentes permitidos (default: 8)', example: 8 })
+    @ApiQuery({ name: 'modulos_base', required: false, type: Number, description: 'DEPRECADO: Ya no se usa para asignación. Se mantiene por compatibilidad (default: 6)', example: 6 })
+    @ApiQuery({ name: 'modulos_maximos', required: false, type: Number, description: 'Número máximo de módulos equivalentes permitidos cuando aplicar_limite=true (default: 8). Solo se aplica si aplicar_limite=true', example: 8 })
+    @ApiQuery({ name: 'aplicar_limite', required: false, type: Boolean, description: 'Si true, limita la carga a modulos_maximos. Si false, muestra TODAS las materias habilitadas sin límite (default: false)', example: false })
     @ApiResponse({ 
         status: 200, 
         description: 'Planificación académica generada exitosamente',
@@ -301,14 +307,60 @@ export class RegistroMateriaController {
             carrera: 'Ingeniería de Sistemas',
             pensum: 1,
             total_estudiantes: 150,
+            estadisticas: {
+                estudiantes_con_materias_habilitadas: 145,
+                estudiantes_sin_materias_habilitadas: 5,
+                total_materias_pensum: 45,
+                estudiantes_con_historial: 140,
+                estudiantes_sin_historial: 10
+            },
             resumen_demanda: [
                 {
                     id_materia: 1,
                     nombre: 'Programación I',
                     sigla: 'INF-101',
-                    total_estudiantes: 45,
-                    demanda_por_modulo: { 1: 20, 2: 25 },
-                    grupos_necesarios: { 1: 1, 2: 1 }
+                    total_estudiantes: 85,
+                    grupos_necesarios: 3,
+                    preferencias_horario: [
+                        {
+                            horario: '08:00-10:00',
+                            cantidad_estudiantes: 30,
+                            grupos_sugeridos: 1,
+                            estudiantes: [
+                                {
+                                    id_estudiante: 1,
+                                    registro: '2021001234',
+                                    nombre: 'Juan Pérez',
+                                    horario_preferido: '08:00-10:00'
+                                },
+                                {
+                                    id_estudiante: 2,
+                                    registro: '2021001235',
+                                    nombre: 'María García',
+                                    horario_preferido: '08:00-10:00'
+                                }
+                            ]
+                        },
+                        {
+                            horario: '14:00-16:00',
+                            cantidad_estudiantes: 25,
+                            grupos_sugeridos: 1,
+                            estudiantes: [
+                                {
+                                    id_estudiante: 3,
+                                    registro: '2021001236',
+                                    nombre: 'Carlos López',
+                                    horario_preferido: '14:00-16:00'
+                                }
+                            ]
+                        },
+                        {
+                            horario: '18:00-20:00',
+                            cantidad_estudiantes: 30,
+                            grupos_sugeridos: 1,
+                            estudiantes: []
+                        }
+                    ]
                 }
             ],
             planificaciones_estudiantes: [
@@ -316,10 +368,91 @@ export class RegistroMateriaController {
                     id_estudiante: 1,
                     registro: '2021001234',
                     nombre: 'Juan Pérez',
-                    materias_habilitadas: 5,
-                    carga_total_modulos: 7,
-                    modulo_asignaciones: [
-                        { modulo: 1, materias: [{ id: 1, nombre: 'Programación I', sigla: 'INF-101', creditos: 3, prioridad: 1 }] }
+                    materias_habilitadas: 8,
+                    carga_total_modulos: 12,
+                    materias: [
+                        { id: 1, nombre: 'Programación I', sigla: 'INF-101', creditos: 3, prioridad: 1, semestre: '1' },
+                        { id: 2, nombre: 'Matemáticas I', sigla: 'MAT-101', creditos: 4, prioridad: 1, semestre: '1' },
+                        { id: 3, nombre: 'Base de Datos', sigla: 'INF-201', creditos: 3, prioridad: 2, semestre: '3' }
+                    ]
+                }
+            ],
+            logs_validacion: [
+                {
+                    tipo: 'inicio_evaluacion',
+                    registro: '2021001234',
+                    id_estudiante: 1,
+                    nombre: 'Juan Pérez'
+                },
+                {
+                    tipo: 'materias_estudiante',
+                    registro: '2021001234',
+                    materias_aprobadas: {
+                        cantidad: 15,
+                        ids: ['1', '2', '3']
+                    },
+                    materias_reprobadas: {
+                        cantidad: 2,
+                        ids: ['5', '7']
+                    }
+                },
+                {
+                    tipo: 'evaluando_materia',
+                    registro: '2021001234',
+                    materia: {
+                        id: '5',
+                        sigla: 'INF-201',
+                        nombre: 'Base de Datos',
+                        semestre: '3'
+                    }
+                },
+                {
+                    tipo: 'prerrequisitos_especificos',
+                    registro: '2021001234',
+                    materia: {
+                        id: '5',
+                        sigla: 'INF-201'
+                    },
+                    prerrequisitos: {
+                        requeridos: ['3', '4'],
+                        cumplidos: {
+                            ids: ['3', '4'],
+                            cantidad: 2,
+                            total: 2
+                        },
+                        faltantes: {
+                            ids: [],
+                            cantidad: 0,
+                            total: 2
+                        },
+                        cumple: true
+                    }
+                },
+                {
+                    tipo: 'materia_habilitada',
+                    registro: '2021001234',
+                    materia: {
+                        id: '5',
+                        sigla: 'INF-201',
+                        nombre: 'Base de Datos',
+                        semestre: '3',
+                        creditos: 3
+                    },
+                    resultado: 'HABILITADA',
+                    razon: 'Cumple todos los prerrequisitos'
+                },
+                {
+                    tipo: 'resumen_evaluacion',
+                    registro: '2021001234',
+                    total_materias_habilitadas: 8,
+                    materias: [
+                        {
+                            id: '5',
+                            sigla: 'INF-201',
+                            nombre: 'Base de Datos',
+                            prioridad: 2,
+                            creditos: 3
+                        }
                     ]
                 }
             ]
@@ -333,6 +466,7 @@ export class RegistroMateriaController {
         @Query('gestion') gestion: string,
         @Query('modulos_base') modulosBase?: number,
         @Query('modulos_maximos') modulosMaximos?: number,
+        @Query('aplicar_limite') aplicarLimite?: string,
     ) {
         if (!carrera || !pensum || !gestion) {
             throw new BadRequestException('Faltan parámetros requeridos: carrera, pensum y gestion');
@@ -343,12 +477,16 @@ export class RegistroMateriaController {
             throw new BadRequestException('Formato de gestión inválido. Debe ser YYYY-S (ej: 2026-1)');
         }
 
+        // Convertir aplicar_limite a boolean (acepta 'true', '1', 'yes', etc.)
+        const aplicarLimiteBool = aplicarLimite === 'true' || aplicarLimite === '1' || aplicarLimite === 'yes';
+
         const resultado = await this.materiaService.planificacionAcademicaAvanzada(
             carrera,
             Number(pensum),
             gestion,
             modulosBase ? Number(modulosBase) : 6,
-            modulosMaximos ? Number(modulosMaximos) : 8
+            modulosMaximos ? Number(modulosMaximos) : 8,
+            aplicarLimiteBool
         );
 
         return resultado;

@@ -1,5 +1,5 @@
 import { estudiante_Carrera, materia_preRequisito, estudiantes_materia } from './../../node_modules/.prisma/client/index.d';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.services';
 import * as bcrypt from 'bcrypt';
 import dayjs from 'dayjs';
@@ -1762,7 +1762,8 @@ export class MateriaService {
         numeroPensum: number,
         gestion: string, // Ej: "2026-1"
         MODULOS_BASE = 6,
-        MODULOS_MAXIMOS = 8
+        MODULOS_MAXIMOS = 8,
+        aplicarLimite = false // Si es false, muestra TODAS las materias habilitadas sin límite
     ) {
         // ========== PASO 1: Identificar TODAS las materias pendientes ==========
         const carrera = await this.prisma.carrera.findFirst({
@@ -1785,6 +1786,16 @@ export class MateriaService {
             }
         });
 
+        // Obtener IDs de materias del pensum específico
+        const idsMateriasPensum = materiasPensum
+            .map(mp => mp.id_materia?.toString())
+            .filter((id): id is string => id !== null && id !== undefined);
+        
+        console.log('=== FILTRO POR CARRERA Y PENSUM ===');
+        console.log('Carrera ID:', carrera.id_carrera);
+        console.log('Pensum:', numeroPensum);
+        console.log('Total materias en el pensum:', idsMateriasPensum.length);
+        
         const estudiantesCarrera = await this.prisma.estudiante_Carrera.findMany({
             where: { Id_Carrera: carrera.id_carrera },
             include: {
@@ -1793,18 +1804,129 @@ export class MateriaService {
                         estudiantes_materia: {
                             // Incluir TODAS las materias cursadas (de cualquier gestión)
                             // para poder identificar aprobadas, reprobadas y pendientes
-                            include: { materia: true }
+                            include: { 
+                                materia: true,
+                                horario_materia: true  // Incluir horarios históricos para determinar preferencias
+                            }
                         },
                         Persona: true
                     }
                 }
             }
         });
+        
+        console.log('Total estudiantes en la carrera (sin filtrar por pensum):', estudiantesCarrera.length);
 
-        // Filtrar solo estudiantes regulares
-        const estudiantesRegulares = estudiantesCarrera.filter(ec =>
-            ec.estudiante?.estado?.trim().toLowerCase() === 'regular'
-        );
+        // Calcular semestre actual y semestre mínimo (2 semestres completos hacia atrás)
+        // Si la gestión es "2025-2", el mínimo sería "2024-1" (incluye: 2024-1, 2024-2, 2025-1, 2025-2)
+        const [anioGestion, semestreGestion] = gestion.split('-').map(Number);
+        const semestreActual = gestion; // Usar la gestión recibida como semestre actual
+        
+        // Función para calcular un semestre N semestres hacia atrás
+        function calcularSemestreAtras(semestre: string, semestresAtras: number): string {
+            const [anio, semestreNum] = semestre.split('-').map(Number);
+            let nuevoAnio = anio;
+            let nuevoSemestre = semestreNum;
+            
+            for (let i = 0; i < semestresAtras; i++) {
+                if (nuevoSemestre === 1) {
+                    nuevoSemestre = 2;
+                    nuevoAnio = nuevoAnio - 1;
+                } else {
+                    nuevoSemestre = 1;
+                }
+            }
+            
+            return `${nuevoAnio}-${nuevoSemestre}`;
+        }
+
+        // Calcular semestre mínimo: 2 semestres completos hacia atrás (3 semestres hacia atrás)
+        const semestreMinimo = calcularSemestreAtras(semestreActual, 3);
+        
+        // Función para verificar si un semestre está en el rango
+        // Equivalente a SQL: semestre_ultimo >= minimo AND semestre_ultimo <= maximo
+        // El formato "YYYY-S" permite comparación lexicográfica directa (igual que en SQL)
+        // Ejemplo: "2024-1" < "2024-2" < "2025-1" < "2025-2" (comparación de strings)
+        function semestreEnRango(semestre: string, minimo: string, maximo: string): boolean {
+            // Comparación de strings directa (igual que SQL)
+            // Esto funciona porque el formato "YYYY-S" es lexicográficamente ordenable
+            return semestre >= minimo && semestre <= maximo;
+        }
+        
+        console.log('=== FILTRO DE ESTUDIANTES EN planificacionAcademicaAvanzada ===');
+        console.log('Gestión recibida (semestre actual):', semestreActual);
+        console.log('Semestre mínimo calculado:', semestreMinimo);
+        console.log('Rango válido: desde', semestreMinimo, 'hasta', semestreActual);
+        console.log('Total estudiantes antes del filtro:', estudiantesCarrera.length);
+        
+        // Filtrar SOLO estudiantes con estado REGULAR y semestre_ultimo en rango (case-insensitive)
+        let contadorSinEstudiante = 0;
+        let contadorSinEstado = 0;
+        let contadorEstadoNoRegular = 0;
+        let contadorSinSemestreUltimo = 0;
+        let contadorFueraDeRango = 0;
+        let contadorAceptados = 0;
+        
+        const estudiantesRegulares = estudiantesCarrera.filter(ec => {
+            if (!ec.estudiante) {
+                contadorSinEstudiante++;
+                return false;
+            }
+            
+            if (!ec.estudiante.estado) {
+                contadorSinEstado++;
+                return false;
+            }
+            
+            const estadoTrim = ec.estudiante.estado.trim().toUpperCase();
+            if (estadoTrim !== 'REGULAR') {
+                contadorEstadoNoRegular++;
+                return false;
+            }
+
+            const semestreUltimo = ec.estudiante.semestre_ultimo;
+            
+            // Si no tiene semestre_ultimo, no se incluye
+            if (!semestreUltimo || semestreUltimo.trim() === '') {
+                contadorSinSemestreUltimo++;
+                return false;
+            }
+
+            const semestreUltimoTrim = semestreUltimo.trim();
+            
+            // Validar formato del semestre: DEBE ser exactamente "YYYY-S" con guion
+            if (!/^\d{4}-[12]$/.test(semestreUltimoTrim)) {
+                contadorFueraDeRango++;
+                return false;
+            }
+            
+            // Comparación de strings directa (igual que SQL: semestre_ultimo >= minimo AND semestre_ultimo <= maximo)
+            // El formato "YYYY-S" permite comparación lexicográfica correcta
+            const dentroRango = semestreEnRango(semestreUltimoTrim, semestreMinimo, semestreActual);
+            
+            if (!dentroRango) {
+                contadorFueraDeRango++;
+                return false;
+            }
+            
+            contadorAceptados++;
+            return true;
+        });
+        
+        console.log('=== ESTADÍSTICAS DEL FILTRO ===');
+        console.log('Total estudiantes después del filtro:', estudiantesRegulares.length);
+        console.log('Desglose de rechazos:');
+        console.log('  - Sin estudiante:', contadorSinEstudiante);
+        console.log('  - Sin estado:', contadorSinEstado);
+        console.log('  - Estado no REGULAR:', contadorEstadoNoRegular);
+        console.log('  - Sin semestre_ultimo:', contadorSinSemestreUltimo);
+        console.log('  - Fuera de rango:', contadorFueraDeRango);
+        console.log('  - Aceptados:', contadorAceptados);
+        console.log('==========================================\n');
+
+        // CONFIGURACIONES DEL ALGORITMO DE SEMESTRE
+        const PORCENTAJE_MINIMO_VENCIDO = 0.80; // 80% - Porcentaje mínimo de materias aprobadas para considerar un semestre como "vencido"
+        const ARRASTRES_MAXIMOS = 2;            // Hasta 2 materias pendientes permitidas para avanzar al siguiente semestre
 
         // Materias agrupadas por semestre
         const materiasPorSemestre: Record<string, string[]> = {};
@@ -1845,9 +1967,9 @@ export class MateriaService {
             id_estudiante: bigint;
             registro: string;
             nombre: string;
-            materias_habilitadas: MateriaHabilitada[];
+            materias_habilitadas: MateriaHabilitada[]; // Materias después de aplicar límite (para planificación)
+            materias_habilitadas_todas: MateriaHabilitada[]; // TODAS las materias habilitadas (para demanda)
             carga_total_modulos: number;
-            modulo_asignaciones: Record<number, MateriaHabilitada[]>; // modulo -> materias
         };
 
         const planificaciones: PlanificacionEstudiante[] = [];
@@ -1856,11 +1978,30 @@ export class MateriaService {
             if (!ec.estudiante) continue;
 
             const estudiante = ec.estudiante;
-            // Obtener materias aprobadas (estado puede ser "aprobado", "APROBADO", etc.)
+            const registroEstudiante = estudiante.nroRegistro || 'SIN_REGISTRO';
+            
+            // Obtener IDs de materias del pensum actual (para filtrar solo materias del pensum)
+            const idsMateriasPensum = materiasPensum
+                .map(mp => mp.id_materia?.toString())
+                .filter((id): id is string => id !== null && id !== undefined);
+            
+            // Obtener materias aprobadas SOLO del pensum actual (estado puede ser "aprobado", "APROBADO", etc.)
+            // IMPORTANTE: Normalizar a string para comparación consistente
+            // IMPORTANTE: Solo incluir materias que están en el pensum actual
             const materiasAprobadas = estudiante.estudiantes_materia
-                .filter(em => em.estado && em.estado.toLowerCase().trim() === "aprobado")
-                .map(em => em.id_materia?.toString())
-                .filter(Boolean) as string[];
+                .filter(em => {
+                    const estado = em.estado?.toLowerCase().trim();
+                    const idMateriaStr = em.id_materia?.toString();
+                    return (estado === "aprobado" || estado === "aprobada") && 
+                           idMateriaStr && 
+                           idsMateriasPensum.includes(idMateriaStr);
+                })
+                .map(em => {
+                    // Normalizar a string para comparación
+                    if (em.id_materia === null || em.id_materia === undefined) return null;
+                    return em.id_materia.toString();
+                })
+                .filter((id): id is string => id !== null && id !== undefined);
 
             // Obtener materias reprobadas
             const materiasReprobadas = estudiante.estudiantes_materia
@@ -1868,48 +2009,194 @@ export class MateriaService {
                 .map(em => em.id_materia?.toString())
                 .filter(Boolean) as string[];
 
+            // ============================================
+            // ALGORITMO DE CÁLCULO DE SEMESTRE ESTIMADO
+            // ============================================
+            // Este algoritmo determina en qué semestre está un estudiante basándose en:
+            // 1. Porcentaje de materias aprobadas por semestre (≥80% = semestre vencido)
+            // 2. Cantidad de arrastres acumulados (máximo 2 para avanzar al siguiente semestre)
+            
+            // Paso 1: Identificar el último semestre vencido
+            let ultimoSemestreVencido = 0;
+            let arrastresAcumulados = 0;
+            const semestresOrdenados = Object.entries(materiasPorSemestre)
+                .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+            let arrastresPorSemestre: number[] = [];
+            
+            for (const [sem, materias] of semestresOrdenados) {
+                const total = materias.length;
+                const aprobadas = materias.filter(id => materiasAprobadas.includes(id)).length;
+                const porcentaje = total > 0 ? aprobadas / total : 0;
+                
+                if (porcentaje >= PORCENTAJE_MINIMO_VENCIDO) {
+                    ultimoSemestreVencido = parseInt(sem);
+                    arrastresPorSemestre.push(total - aprobadas); // Guardar arrastres de este semestre
+                } else {
+                    arrastresPorSemestre.push(total - aprobadas);
+                    break;
+                }
+            }
+            
+            // Paso 2: Calcular arrastres acumulados (suma de materias pendientes hasta el último semestre vencido)
+            arrastresAcumulados = arrastresPorSemestre.slice(0, ultimoSemestreVencido).reduce((acc, n) => acc + n, 0);
+            
+            // Paso 3: Estimar el semestre actual del estudiante
+            let semestreEstimado = ultimoSemestreVencido;
+            if (arrastresAcumulados <= ARRASTRES_MAXIMOS) {
+                semestreEstimado = ultimoSemestreVencido + 1;
+            }
+
             const materiasHabilitadas: MateriaHabilitada[] = [];
 
             for (const mp of materiasPensum) {
                 if (!mp.materia || !mp.id_materia) continue;
 
                 const idMateriaStr = mp.id_materia.toString();
+                const nombreMateria = mp.materia.nombre || 'Sin nombre';
+                const siglaMateria = mp.materia.siglas_materia || 'Sin sigla';
                 
                 // Ya aprobada? Skip (pero permitir reprobadas para que puedan repetir)
                 // Verificar si está aprobada en alguna gestión
                 const yaAprobada = estudiante.estudiantes_materia.some(em => 
                     em.id_materia?.toString() === idMateriaStr && em.estado === "aprobado"
                 );
-                if (yaAprobada) continue;
-
-                // Es pendiente o reprobada
-                const esPendiente = !materiasAprobadas.includes(idMateriaStr) && 
-                                   !materiasReprobadas.includes(idMateriaStr);
-                const esReprobada = materiasReprobadas.includes(idMateriaStr);
+                if (yaAprobada) {
+                    continue;
+                }
+                
+                // ============================================
+                // FILTRAR POR SEMESTRE ESTIMADO
+                // ============================================
+                // Solo se recomiendan materias hasta 2 semestres adelante del semestre estimado
+                const semestreMateria = mp.semestre ? parseInt(mp.semestre) : Infinity;
+                if (semestreMateria > semestreEstimado + 2) {
+                    // Log solo si es un error (materia muy adelante)
+                    continue;
+                }
 
                 // Verificar prerrequisitos
                 const prerequisitos = mp.materia.materia_preRequisito || [];
-                const idsReq = prerequisitos.map(p => p.id_materia_preRequisito?.toString()).filter(Boolean);
                 
-                // Buscar el total_materia requerido (puede estar en cualquier prerrequisito)
-                const totalReq = prerequisitos.find(p => p.total_materia && p.total_materia > 0)?.total_materia ?? 0;
+                // Normalizar IDs de prerrequisitos a string para comparación consistente
+                const idsReq = prerequisitos
+                    .map(p => {
+                        if (p.id_materia_preRequisito === null || p.id_materia_preRequisito === undefined) {
+                            return null;
+                        }
+                        return p.id_materia_preRequisito.toString();
+                    })
+                    .filter((id): id is string => id !== null && id !== undefined);
+                
+                // Buscar el total_materia requerido para ESTA materia específica
+                // Cada materia puede tener su propio requisito de total_materia
+                // Si hay múltiples valores, tomar el máximo requerido
+                const totalesRequeridos = prerequisitos
+                    .filter(p => p.total_materia && p.total_materia > 0)
+                    .map(p => p.total_materia!);
+                const totalReq = totalesRequeridos.length > 0 ? Math.max(...totalesRequeridos) : 0;
+                
 
-                // Si no hay prerrequisitos específicos, la materia está habilitada
-                const aprobadasRequeridas = idsReq.length === 0 || idsReq.every(reqId =>
-                    reqId && materiasAprobadas.includes(reqId)
-                );
+                // Validar prerrequisitos específicos
+                // Si NO hay prerrequisitos específicos (idsReq vacío), solo se valida totalReq
+                // Si SÍ hay prerrequisitos específicos, TODOS deben estar aprobados
+                let aprobadasRequeridas = true; // Por defecto true si no hay prerrequisitos específicos
+                
+                if (idsReq.length > 0) {
+                    // Verificar que TODOS los prerrequisitos específicos estén aprobados
+                    aprobadasRequeridas = idsReq.every(reqId => {
+                        if (!reqId) return false;
+                        const cumple = materiasAprobadas.includes(reqId);
+                        return cumple;
+                    });
+                }
+                
 
-                // Verificar total de materias requeridas (si aplica)
+                // Verificar total de materias requeridas para ESTA materia específica
+                // IMPORTANTE: Cada materia tiene su propio total_materia como prerrequisito
+                // El estudiante debe tener al menos el número requerido de materias aprobadas
+                // Ejemplo: Si esta materia requiere 45 materias, el estudiante debe tener >= 45 materias aprobadas
+                // Solo se permite acceso si le faltan máximo 4-5 materias del pensum (incluyendo la materia actual)
+                // Esto significa: totalMateriasAprobadas >= totalReq (específico de esta materia)
                 let cumpleTotalRequisitos = true;
+                const MATERIAS_FALTANTES_MAXIMAS = 5; // Máximo de materias faltantes permitidas (incluyendo la materia actual)
+                
                 if (totalReq > 0) {
-                    const totalMaterias = materiasAprobadas.filter(id => 
-                        id && materiaASemestre[id] !== undefined
-                    ).length;
-                    cumpleTotalRequisitos = totalMaterias >= totalReq;
+                    // totalReq es específico de esta materia (obtenido de sus prerrequisitos)
+                    // Obtener IDs de materias del pensum actual
+                    const idsMateriasPensum = materiasPensum
+                        .map(mp => mp.id_materia?.toString())
+                        .filter((id): id is string => id !== null && id !== undefined);
+                    
+                    // Contar solo las materias aprobadas que están en el pensum actual
+                    // IMPORTANTE: Filtrar por estado aprobado Y que esté en el pensum actual
+                    // También eliminar duplicados (un estudiante puede tener la misma materia aprobada múltiples veces)
+                    const materiasAprobadasPensum = estudiante.estudiantes_materia
+                        .filter(em => {
+                            const estado = em.estado?.toLowerCase().trim();
+                            const idMateriaStr = em.id_materia?.toString();
+                            return (estado === "aprobado" || estado === "aprobada") && 
+                                   idMateriaStr && 
+                                   idsMateriasPensum.includes(idMateriaStr);
+                        });
+                    
+                    // Eliminar duplicados: un estudiante puede tener la misma materia aprobada en múltiples gestiones
+                    // Solo contar una vez cada materia aprobada
+                    const materiasAprobadasUnicas = new Map<string, typeof materiasAprobadasPensum[0]>();
+                    for (const em of materiasAprobadasPensum) {
+                        const idMateriaStr = em.id_materia?.toString();
+                        if (idMateriaStr && !materiasAprobadasUnicas.has(idMateriaStr)) {
+                            materiasAprobadasUnicas.set(idMateriaStr, em);
+                        }
+                    }
+                    
+                    const totalMateriasAprobadas = materiasAprobadasUnicas.size;
+                    
+                    // Calcular créditos acumulados (solo materias del pensum, sin duplicados)
+                    const creditosAcumulados = Array.from(materiasAprobadasUnicas.values()).reduce((sum, em) => {
+                        // Buscar la materia en el pensum para obtener sus créditos
+                        const materiaPensum = materiasPensum.find(mp => 
+                            mp.id_materia?.toString() === em.id_materia?.toString()
+                        );
+                        const creditos = materiaPensum?.materia?.creditos || 0;
+                        return sum + creditos;
+                    }, 0);
+                    
+                    // Calcular total de materias en el pensum
+                    const totalMateriasPensum = materiasPensum.length;
+                    
+                    // Calcular materias faltantes del pensum (incluyendo la materia actual)
+                    // Ejemplo: Si esta materia requiere 45 y el pensum tiene 50, el estudiante debe tener >= 45 aprobadas
+                    // Las materias faltantes serían: totalMateriasPensum - totalMateriasAprobadas (incluyendo la actual)
+                    const materiasFaltantes = totalMateriasPensum - totalMateriasAprobadas;
+                    
+                    // Validar para ESTA materia específica:
+                    // 1. Debe tener al menos totalReq materias aprobadas (requisito específico de esta materia) - OBLIGATORIO
+                    // 2. Las materias faltantes del pensum (incluyendo la actual) deben ser <= MATERIAS_FALTANTES_MAXIMAS
+                    // IMPORTANTE: La primera condición es OBLIGATORIA - si no tiene >= totalReq, NO puede acceder
+                    const cumpleCantidadMinima = totalMateriasAprobadas >= totalReq;
+                    const cumpleFaltantesMaximas = materiasFaltantes <= MATERIAS_FALTANTES_MAXIMAS;
+                    cumpleTotalRequisitos = cumpleCantidadMinima && cumpleFaltantesMaximas;
+                    
                 }
 
-                // Si cumple prerrequisitos O no tiene prerrequisitos, está habilitada
-                if (aprobadasRequeridas && cumpleTotalRequisitos) {
+                // Validación final: debe cumplir AMBOS requisitos si existen
+                // 1. Prerrequisitos específicos (si existen)
+                // 2. Cantidad total de materias (si existe)
+                // Si no hay prerrequisitos específicos Y no hay requisito de cantidad, la materia está habilitada
+                const tienePrerrequisitosEspecificos = idsReq.length > 0;
+                const tieneRequisitoCantidad = totalReq > 0;
+                
+                // La materia está habilitada si:
+                // - No tiene prerrequisitos específicos Y no tiene requisito de cantidad, O
+                // - Cumple prerrequisitos específicos (si existen) Y cumple requisito de cantidad (si existe)
+                const materiaHabilitada = 
+                    (!tienePrerrequisitosEspecificos && !tieneRequisitoCantidad) || // Sin requisitos
+                    (tienePrerrequisitosEspecificos && !tieneRequisitoCantidad && aprobadasRequeridas) || // Solo prerrequisitos específicos
+                    (!tienePrerrequisitosEspecificos && tieneRequisitoCantidad && cumpleTotalRequisitos) || // Solo requisito cantidad
+                    (tienePrerrequisitosEspecificos && tieneRequisitoCantidad && aprobadasRequeridas && cumpleTotalRequisitos); // Ambos
+                
+                
+                if (materiaHabilitada) {
                     // Determinar prioridad
                     const nombreLower = (mp.materia.nombre || '').toLowerCase();
                     const siglaLower = (mp.materia.siglas_materia || '').toLowerCase();
@@ -1925,22 +2212,7 @@ export class MateriaService {
                     // Nivel 2: Core del semestre (materias del semestre estimado del estudiante)
                     else {
                         const semestreMateria = mp.semestre ? parseInt(mp.semestre) : 0;
-                        // Calcular semestre estimado del estudiante (similar a lógica anterior)
-                        const semestresOrdenados = Object.entries(materiasPorSemestre)
-                            .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
-                        let ultimoSemestreVencido = 0;
-                        for (const [sem, materias] of semestresOrdenados) {
-                            const total = materias.length;
-                            const aprobadas = materias.filter(id => materiasAprobadas.includes(id)).length;
-                            const porcentaje = total > 0 ? aprobadas / total : 0;
-                            if (porcentaje >= 0.80) {
-                                ultimoSemestreVencido = parseInt(sem);
-                            } else {
-                                break;
-                            }
-                        }
-                        const semestreEstimado = ultimoSemestreVencido + 1;
-                        
+                        // Usar el semestre estimado ya calculado arriba
                         if (Math.abs(semestreMateria - semestreEstimado) <= 1) {
                             prioridad = 2;
                         } else if (semestreMateria <= semestreEstimado + 2) {
@@ -1948,6 +2220,7 @@ export class MateriaService {
                         }
                     }
 
+                    // Agregar materia habilitada con validación de prerrequisitos
                     materiasHabilitadas.push({
                         id_materia: mp.id_materia,
                         nombre: mp.materia.nombre || '',
@@ -1955,173 +2228,202 @@ export class MateriaService {
                         semestre: mp.semestre,
                         creditos: mp.materia.creditos || 0,
                         prioridad,
-                        prerrequisitos_cumplidos: true,
+                        prerrequisitos_cumplidos: true, // Confirmado: cumple todos los prerrequisitos
                         estudiantes_interesados: 0
                     });
+                    
                 }
             }
-
+            
             // Ordenar por prioridad
             materiasHabilitadas.sort((a, b) => a.prioridad - b.prioridad);
 
-            // ========== PASO 3: Aplicar límites del semestre ==========
             // Calcular carga total en módulos equivalentes (asumiendo 1 crédito = 1 módulo equivalente)
-            let cargaTotal = materiasHabilitadas.reduce((sum, m) => sum + (m.creditos || 0), 0);
+            const cargaTotal = materiasHabilitadas.reduce((sum, m) => sum + (m.creditos || 0), 0);
             
-            // Si excede, priorizar
-            if (cargaTotal > MODULOS_MAXIMOS) {
-                const materiasPriorizadas: MateriaHabilitada[] = [];
-                let cargaAcumulada = 0;
-                
-                for (const materia of materiasHabilitadas) {
-                    if (cargaAcumulada + (materia.creditos || 0) <= MODULOS_MAXIMOS) {
-                        materiasPriorizadas.push(materia);
-                        cargaAcumulada += materia.creditos || 0;
-                    } else {
-                        break; // Ya no caben más
-                    }
-                }
-                
-                planificaciones.push({
-                    id_estudiante: estudiante.id_estudiante,
-                    registro: estudiante.nroRegistro || '',
-                    nombre: `${estudiante.Persona?.Nombre || ''} ${estudiante.Persona?.Apellido1 || ''}`.trim(),
-                    materias_habilitadas: materiasPriorizadas,
-                    carga_total_modulos: cargaAcumulada,
-                    modulo_asignaciones: {}
-                });
-            } else {
-                planificaciones.push({
-                    id_estudiante: estudiante.id_estudiante,
-                    registro: estudiante.nroRegistro || '',
-                    nombre: `${estudiante.Persona?.Nombre || ''} ${estudiante.Persona?.Apellido1 || ''}`.trim(),
-                    materias_habilitadas: materiasHabilitadas,
-                    carga_total_modulos: cargaTotal,
-                    modulo_asignaciones: {}
-                });
-            }
-        }
-
-        // ========== PASO 4 y 5: Asignar módulos maximizando avance ==========
-        // Distribuir materias en módulos (1-6 base, permitir hasta 8)
-        for (const plan of planificaciones) {
-            const asignaciones: Record<number, MateriaHabilitada[]> = {};
-            const materiasAsignadas = new Set<string>();
-            
-            // Solo procesar si hay materias habilitadas
-            if (plan.materias_habilitadas.length === 0) {
-                plan.modulo_asignaciones = {};
-                continue;
-            }
-            
-            // Primero asignar materias de mayor prioridad en módulos diferentes
-            for (let modulo = 1; modulo <= MODULOS_BASE; modulo++) {
-                // Buscar materia de mayor prioridad no asignada
-                for (const materia of plan.materias_habilitadas) {
-                    const materiaKey = materia.id_materia.toString();
-                    if (materiasAsignadas.has(materiaKey)) continue;
-                    
-                    if (!asignaciones[modulo]) {
-                        asignaciones[modulo] = [];
-                    }
-                    asignaciones[modulo].push(materia);
-                    materiasAsignadas.add(materiaKey);
-                    break; // Una materia por módulo base
-                }
-            }
-            
-            // Llenar módulos vacíos con materias restantes
-            for (let modulo = 1; modulo <= MODULOS_BASE; modulo++) {
-                if (!asignaciones[modulo] || asignaciones[modulo].length === 0) {
-                    for (const materia of plan.materias_habilitadas) {
-                        const materiaKey = materia.id_materia.toString();
-                        if (materiasAsignadas.has(materiaKey)) continue;
-                        
-                        if (!asignaciones[modulo]) {
-                            asignaciones[modulo] = [];
-                        }
-                        asignaciones[modulo].push(materia);
-                        materiasAsignadas.add(materiaKey);
-                        break;
-                    }
-                }
-            }
-            
-            // Si aún hay espacio, permitir dos materias en un módulo
-            let cargaActual = Object.values(asignaciones).reduce((sum, arr) => 
-                sum + arr.reduce((s, m) => s + (m.creditos || 0), 0), 0
-            );
-            
-            for (const materia of plan.materias_habilitadas) {
-                const materiaKey = materia.id_materia.toString();
-                if (materiasAsignadas.has(materiaKey)) continue;
-                if (cargaActual + (materia.creditos || 0) > MODULOS_MAXIMOS) break;
-                
-                // Buscar módulo con menos carga
-                let moduloMenosCargado = 1;
-                let menorCarga = Infinity;
-                for (let mod = 1; mod <= MODULOS_BASE; mod++) {
-                    const cargaMod = asignaciones[mod]?.reduce((s, m) => s + (m.creditos || 0), 0) || 0;
-                    if (cargaMod < menorCarga) {
-                        menorCarga = cargaMod;
-                        moduloMenosCargado = mod;
-                    }
-                }
-                
-                if (!asignaciones[moduloMenosCargado]) {
-                    asignaciones[moduloMenosCargado] = [];
-                }
-                asignaciones[moduloMenosCargado].push(materia);
-                materiasAsignadas.add(materiaKey);
-                cargaActual += materia.creditos || 0;
-            }
-            
-            plan.modulo_asignaciones = asignaciones;
+            // Incluir todas las materias habilitadas (sin límite de carga)
+            // El límite de carga será manejado externamente, no por este algoritmo
+            planificaciones.push({
+                id_estudiante: estudiante.id_estudiante,
+                registro: estudiante.nroRegistro || '',
+                nombre: `${estudiante.Persona?.Nombre || ''} ${estudiante.Persona?.Apellido1 || ''}`.trim(),
+                materias_habilitadas: materiasHabilitadas, // Todas las materias habilitadas
+                materias_habilitadas_todas: materiasHabilitadas, // Mismo valor (sin límite)
+                carga_total_modulos: cargaTotal
+            });
         }
 
         // ========== PASO 6 y 7: Resolver conflictos y validar capacidad ==========
-        // Agregar contadores de demanda por materia y módulo
+        // Función auxiliar para determinar horario preferido del estudiante basado en historial
+        const determinarHorarioPreferido = (estudiante: any): string => {
+            // Obtener todos los horarios específicos (rangos de hora) que ha cursado
+            const horariosHistoricos = estudiante.estudiantes_materia
+                .filter(em => em.horario_materia?.horario && em.horario_materia.horario.trim() !== '')
+                .map(em => em.horario_materia.horario.trim())
+                .filter(Boolean);
+            
+            // Si tiene horarios específicos, usar el más frecuente
+            if (horariosHistoricos.length > 0) {
+                const frecuenciaHorarios: Record<string, number> = {};
+                horariosHistoricos.forEach(horario => {
+                    frecuenciaHorarios[horario] = (frecuenciaHorarios[horario] || 0) + 1;
+                });
+                
+                const horarioMasFrecuente = Object.entries(frecuenciaHorarios)
+                    .sort((a, b) => b[1] - a[1])[0];
+                
+                if (horarioMasFrecuente) {
+                    return horarioMasFrecuente[0];
+                }
+            }
+            
+            // Si no tiene horarios específicos, intentar usar el campo 'turno' de horario_materia
+            const turnosHistoricos = estudiante.estudiantes_materia
+                .filter(em => em.horario_materia?.turno && em.horario_materia.turno.trim() !== '')
+                .map(em => em.horario_materia.turno.trim())
+                .filter(Boolean);
+            
+            if (turnosHistoricos.length > 0) {
+                const frecuenciaTurnos: Record<string, number> = {};
+                turnosHistoricos.forEach(turno => {
+                    frecuenciaTurnos[turno] = (frecuenciaTurnos[turno] || 0) + 1;
+                });
+                
+                const turnoMasFrecuente = Object.entries(frecuenciaTurnos)
+                    .sort((a, b) => b[1] - a[1])[0];
+                
+                if (turnoMasFrecuente) {
+                    return turnoMasFrecuente[0];
+                }
+            }
+            
+            // Si no tiene historial de horarios ni turnos, usar turno_moda o turno_inscripcion
+            if (estudiante.turno_moda && estudiante.turno_moda.trim().toLowerCase() !== 'nada') {
+                return estudiante.turno_moda.trim();
+            }
+            if (estudiante.turno_inscripcion && estudiante.turno_inscripcion.trim().toLowerCase() !== 'nada') {
+                return estudiante.turno_inscripcion.trim();
+            }
+            
+            // Último recurso: sin preferencia (estudiante nuevo o sin datos)
+            return 'sin_preferencia';
+        };
+
+        // Pre-calcular preferencias de horario para cada estudiante
+        const preferenciasEstudiantes = new Map<bigint, string>();
+        for (const ec of estudiantesRegulares) {
+            if (!ec.estudiante) continue;
+            const horarioPreferido = determinarHorarioPreferido(ec.estudiante);
+            preferenciasEstudiantes.set(ec.estudiante.id_estudiante, horarioPreferido);
+        }
+
+        // Agregar contadores de demanda por materia agrupados directamente por horarios
+        type PreferenciaHorario = {
+            horario: string;
+            cantidad_estudiantes: number;
+            estudiantes: Array<{
+                id_estudiante: number;
+                registro: string;
+                nombre: string;
+                horario_preferido: string;
+            }>;
+            grupos_sugeridos: number;
+        };
+
         type DemandaMateria = {
             id_materia: bigint;
             nombre: string;
             sigla: string;
             total_estudiantes: number;
-            demanda_por_modulo: Record<number, number>;
-            grupos_necesarios: Record<number, number>;
+            preferencias_horario: PreferenciaHorario[];
+            grupos_necesarios: number; // Total de grupos necesarios para la materia
         };
 
         const demandaMaterias = new Map<string, DemandaMateria>();
 
+        // Agrupar por materia y horario directamente (sin módulos)
+        // IMPORTANTE: 
+        // - La materia aparece en demanda si AL MENOS UN estudiante puede cursarla
+        // - Cada estudiante solo aparece en materias que están en su materias_habilitadas
+        // - Si un estudiante no cumple prerrequisitos, ese estudiante NO debe aparecer en esa materia de la demanda
         for (const plan of planificaciones) {
-            for (const [moduloStr, materias] of Object.entries(plan.modulo_asignaciones)) {
-                const modulo = parseInt(moduloStr);
-                for (const materia of materias) {
-                    const key = materia.id_materia.toString();
-                    if (!demandaMaterias.has(key)) {
-                        demandaMaterias.set(key, {
-                            id_materia: materia.id_materia,
-                            nombre: materia.nombre,
-                            sigla: materia.sigla,
-                            total_estudiantes: 0,
-                            demanda_por_modulo: {},
-                            grupos_necesarios: {}
-                        });
-                    }
-                    
-                    const demanda = demandaMaterias.get(key)!;
-                    demanda.total_estudiantes++;
-                    demanda.demanda_por_modulo[modulo] = (demanda.demanda_por_modulo[modulo] || 0) + 1;
+            // Obtener horario preferido del estudiante
+            const horarioPreferido = preferenciasEstudiantes.get(plan.id_estudiante) || 'sin_preferencia';
+            
+            // Usar todas las materias habilitadas (sin límite de carga)
+            const materiasParaDemanda = plan.materias_habilitadas;
+            
+            if (materiasParaDemanda.length === 0) {
+                continue;
+            }
+            
+            // Validar que todas las materias cumplan prerrequisitos
+            const materiasValidadas = materiasParaDemanda.filter(m => {
+                // Verificar que la materia tenga el flag de prerrequisitos cumplidos
+                if (m.prerrequisitos_cumplidos !== true) {
+                    return false;
                 }
+                return true;
+            });
+            
+            
+            // Agregar estudiante solo a las materias que puede cursar
+            for (const materia of materiasValidadas) {
+                const key = materia.id_materia.toString();
+                
+                if (!demandaMaterias.has(key)) {
+                    demandaMaterias.set(key, {
+                        id_materia: materia.id_materia,
+                        nombre: materia.nombre,
+                        sigla: materia.sigla,
+                        total_estudiantes: 0,
+                        preferencias_horario: [],
+                        grupos_necesarios: 0
+                    });
+                }
+                
+                const demanda = demandaMaterias.get(key)!;
+                if (!demanda) {
+                    continue;
+                }
+                
+                demanda.total_estudiantes++;
+                
+                // Buscar o crear entrada para este horario
+                let preferenciaHorario = demanda.preferencias_horario.find(
+                    p => p.horario === horarioPreferido
+                );
+                
+                if (!preferenciaHorario) {
+                    preferenciaHorario = {
+                        horario: horarioPreferido,
+                        cantidad_estudiantes: 0,
+                        estudiantes: [],
+                        grupos_sugeridos: 0
+                    };
+                    demanda.preferencias_horario.push(preferenciaHorario);
+                }
+                
+                preferenciaHorario.cantidad_estudiantes++;
+                preferenciaHorario.estudiantes.push({
+                    id_estudiante: Number(plan.id_estudiante),
+                    registro: plan.registro,
+                    nombre: plan.nombre,
+                    horario_preferido: horarioPreferido
+                });
             }
         }
+        
 
         // Calcular grupos necesarios (asumiendo 30 estudiantes por grupo)
         const CAPACIDAD_GRUPO = 30;
         for (const demanda of demandaMaterias.values()) {
-            for (const [moduloStr, cantidad] of Object.entries(demanda.demanda_por_modulo)) {
-                const modulo = parseInt(moduloStr);
-                demanda.grupos_necesarios[modulo] = Math.ceil(cantidad / CAPACIDAD_GRUPO);
-            }
+            // Calcular grupos por horario
+            demanda.preferencias_horario.forEach(pref => {
+                pref.grupos_sugeridos = Math.ceil(pref.cantidad_estudiantes / CAPACIDAD_GRUPO);
+            });
+            // Calcular grupos totales de la materia
+            demanda.grupos_necesarios = Math.ceil(demanda.total_estudiantes / CAPACIDAD_GRUPO);
         }
 
         // Estadísticas de debug
@@ -2150,19 +2452,15 @@ export class MateriaService {
                 nombre: p.nombre,
                 materias_habilitadas: p.materias_habilitadas.length,
                 carga_total_modulos: p.carga_total_modulos,
-                modulo_asignaciones: Object.entries(p.modulo_asignaciones)
-                    .filter(([_, materias]) => materias && materias.length > 0) // Solo incluir módulos con materias
-                    .map(([mod, materias]) => ({
-                        modulo: parseInt(mod),
-                        materias: materias.map(m => ({
-                            id: Number(m.id_materia),
-                            nombre: m.nombre,
-                            sigla: m.sigla,
-                            creditos: m.creditos,
-                            prioridad: m.prioridad
-                        }))
-                    }))
-            }))
+                materias: p.materias_habilitadas.map(m => ({
+                    id: Number(m.id_materia),
+                    nombre: m.nombre,
+                    sigla: m.sigla,
+                    creditos: m.creditos,
+                    prioridad: m.prioridad,
+                    semestre: m.semestre
+                }))
+            })),
         };
     }
 
